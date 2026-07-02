@@ -58,6 +58,7 @@ them directly when the situation matches:
 | **pyclawd-doctor** | Diagnose a **broken env** — runs `pyclawd doctor`, interprets OK/WARN/FAIL. | Mass import/collection errors, wrong interpreter, fresh clone, "module not found". |
 | **pyclawd-upgrade** | Migrate the project's `.pyclawd/config.py` after **pyclawd itself was upgraded** (config version drift). | `pyclawd version`/`doctor` reports config built on a different pyclawd; right after `pip install -U pyclawd`. |
 | **pyclawd-adopt** | Onboard an **existing/legacy repo** to pyclawd — bootstrap the config, then drive a red codebase to a green `pyclawd check` with zero behavior regression. The first-time-onboarding counterpart to pyclawd-upgrade. | "adopt pyclawd here", "get this existing repo ready", "make this red codebase pass check". |
+| **pyclawd-web** | The optional **`pyclawd web` dashboard** — a local multi-project diff & review UI: Source/Rendered file views (Markdown with GFM + GitHub alerts + emoji; sandboxed HTML), line-anchored review comments across all views, a ⌘P quick-open palette, and send-to-tmux / dispatch-a-headless-agent to resolve comments. | Reviewing a diff or agent work in a browser, gathering inline comments, previewing how a Markdown/HTML file renders. |
 
 ## The command contract
 

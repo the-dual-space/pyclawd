@@ -54,7 +54,7 @@ on `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 | Docs (if configured) | `pyclawd docs build\|run\|render\|serve\|status\|failures\|exec <page>` |
 | Code map (file → description) | `pyclawd ls [DIR]` · `pyclawd ls --missing` · `pyclawd ls --py` |
 | Manage agent skills | `pyclawd skills list` · `pyclawd skills install` |
-| Web diff/review dashboard (extra) | `pyclawd web serve` · `web add <path>` · `web list` · `web remove <name>` (needs `pip install 'pyclawd[web]'`) |
+| Web diff/review dashboard (extra) | `pyclawd web serve` · `web add <path>` · `web list` · `web remove <name>` (needs `pip install 'pyclawd[web]'`). Source/Rendered file views (Markdown → GFM + `> [!NOTE]` alerts + emoji; sandboxed HTML), line-anchored review comments across all views, ⌘P quick-open, send-to-tmux / dispatch-a-fix-agent — see the **`pyclawd-web`** skill. |
 | Version + config drift | `pyclawd version` · `pyclawd version --json` |
 | What changed (since config) | `pyclawd changelog [--since V] [--full]` |
 | Repo root | `pyclawd root` |

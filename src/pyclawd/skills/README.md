@@ -5,11 +5,12 @@ directory `<name>/SKILL.md` with YAML frontmatter (`name`, `description`,
 `when_to_use`) plus a short body. They are thin wrappers over the real CLI — the
 logic lives in `pyclawd`, the skills just say *what to run and when*.
 
-The tree is **one router + four standalone skills**:
+The tree is **one router + five standalone skills**:
 
 | Skill | Purpose |
 |---|---|
 | `pyclawd` | **Start here** — the router: a lean mental-model TL;DR, an index of on-demand `references/*.md` doctrine files, and pointers to the standalone skills and `AGENTS.md`. |
+| `pyclawd-web` | The optional `pyclawd web` dashboard — local multi-project diff & review UI: Source/Rendered file views (Markdown alerts/emoji, sandboxed HTML), line-anchored comments across views, ⌘P quick-open, send-to-tmux / dispatch-a-fix-agent. |
 | `pyclawd-adopt` | Adopt pyclawd into an existing/legacy repo — bootstrap the config with `pyclawd new` (adopt mode), then drive a red codebase to a green `pyclawd check` with zero behavior regression (curate the gate, pick the docstring convention, lay golden baselines first, fix in small verified batches). The first-time-onboarding counterpart to `pyclawd-upgrade`. |
 | `pyclawd-golden` | Prove behavior *unchanged* across a refactor/migration with the golden behavior-regression oracle. |
 | `pyclawd-doctor` | Diagnose a broken dev env; interpret `pyclawd doctor`'s FAIL/WARN; common fixes. |
