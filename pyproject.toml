@@ -178,6 +178,14 @@ ignore_missing_imports = true
 module = ["fastapi", "fastapi.*", "pydantic", "uvicorn", "watchfiles"]
 ignore_missing_imports = true
 
+# `coverage` is an optional dep of the impact map (`pyclawd test changed`,
+# src/pyclawd/impact.py imports it lazily). It ships with pytest-cov, which is NOT in
+# `[dev]`, so the CI `check` job can't resolve it — and mypy fails on the import. Scope
+# the missing-import allowance to it alone (same rationale as the docs/web overrides).
+[[tool.mypy.overrides]]
+module = ["coverage", "coverage.*"]
+ignore_missing_imports = true
+
 # Pygments ships transitively with rich (a core dep) and powers the web layer's
 # server-side syntax highlighting (src/pyclawd/web/highlight.py), but publishes no
 # type stubs. Scope the missing-import allowance to it alone.
