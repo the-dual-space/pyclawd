@@ -175,8 +175,12 @@ body {
   background: var(--color-panel);
 }
 .md-commented {
-  box-shadow: inset 3px 0 0 var(--color-star);
+  background: #fff8e6;
+  box-shadow: inset 4px 0 0 #d29922;
   border-radius: 4px;
+}
+.md-commented:hover {
+  background: #fff3d4;
 }
 .md-body p,
 .md-body ul,

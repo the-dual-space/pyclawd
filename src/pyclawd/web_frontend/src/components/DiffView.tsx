@@ -333,7 +333,8 @@ function RenderedHtml({ content }: { content: string }) {
     const style = doc.createElement("style");
     style.textContent =
       "[data-line]{cursor:pointer} [data-line]:hover{outline:2px solid rgba(9,105,218,.4);outline-offset:1px}" +
-      ".pl-commented{outline:2px solid #d4a72c;outline-offset:1px}";
+      ".pl-commented{outline:3px solid #d29922;outline-offset:2px;background:rgba(210,153,34,.12);" +
+      "box-shadow:0 0 0 4px rgba(210,153,34,.25);border-radius:4px}";
     doc.head.appendChild(style);
     doc.body.addEventListener("click", (e) => {
       const el = (e.target as HTMLElement).closest<HTMLElement>("[data-line]");
