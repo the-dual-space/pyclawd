@@ -5,9 +5,17 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGemoji from "remark-gemoji";
 import remarkGfm from "remark-gfm";
+import { remarkAlert } from "remark-github-blockquote-alert";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
+
+import "remark-github-blockquote-alert/alert.css";
+
+/** Remark plugins for the rendered document view: GFM + emoji shortcodes + GitHub
+ *  alerts (`> [!NOTE]` → styled callout), so agent-authored docs render richly. */
+const DOC_PLUGINS = [remarkGfm, remarkGemoji, remarkAlert];
 
 import { api } from "@/api";
 import { Markdown } from "@/components/Markdown";
@@ -475,7 +483,7 @@ function BlockRow({ block }: { block: MdBlock }) {
         💬
       </button>
       <div className="md-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.source}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={DOC_PLUGINS}>{block.source}</ReactMarkdown>
       </div>
       {open && (
         <div className="my-2 max-w-2xl space-y-2">

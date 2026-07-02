@@ -182,6 +182,8 @@ body {
 .md-commented:hover {
   background: #fff3d4;
 }
+/* GitHub alert (> [!NOTE] etc.) styling is imported directly from the
+   remark-github-blockquote-alert package — see the import in DiffView.tsx. */
 .md-body p,
 .md-body ul,
 .md-body ol,
