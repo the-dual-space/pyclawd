@@ -321,8 +321,17 @@ function RenderedHtml({ content }: { content: string }) {
   const commentedLines = useMemo(() => new Set(notes.map((n) => n.line)), [notes]);
 
   const highlight = (doc: Document) => {
+    doc.querySelectorAll<HTMLElement>(".pl-commented").forEach((el) =>
+      el.classList.remove("pl-commented"),
+    );
+    // Highlight only the OUTERMOST element for each commented line. Nested elements
+    // often share a source line (e.g. a card + its heading + its code chip on one line);
+    // outlining all of them nests boxes-in-boxes. Skip any element already inside a
+    // highlighted one.
     doc.querySelectorAll<HTMLElement>("[data-line]").forEach((el) => {
-      el.classList.toggle("pl-commented", commentedLines.has(Number(el.dataset.line)));
+      if (!commentedLines.has(Number(el.dataset.line))) return;
+      if (el.closest(".pl-commented")) return;
+      el.classList.add("pl-commented");
     });
   };
 
@@ -333,8 +342,8 @@ function RenderedHtml({ content }: { content: string }) {
     const style = doc.createElement("style");
     style.textContent =
       "[data-line]{cursor:pointer} [data-line]:hover{outline:2px solid rgba(9,105,218,.4);outline-offset:1px}" +
-      ".pl-commented{outline:3px solid #d29922;outline-offset:2px;background:rgba(210,153,34,.12);" +
-      "box-shadow:0 0 0 4px rgba(210,153,34,.25);border-radius:4px}";
+      ".pl-commented{outline:2px solid #d29922;outline-offset:2px;" +
+      "box-shadow:0 0 0 4px rgba(210,153,34,.22);border-radius:6px}";
     doc.head.appendChild(style);
     doc.body.addEventListener("click", (e) => {
       const el = (e.target as HTMLElement).closest<HTMLElement>("[data-line]");
