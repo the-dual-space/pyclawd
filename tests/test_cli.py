@@ -10,23 +10,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 
-from pyclawd import discovery
 from pyclawd.cli import app
 
 runner = CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _reset_discovery():
-    """The ``--config`` override and load cache are process-wide; isolate each test."""
-    discovery.set_config_override(None)
-    discovery._CACHE.clear()
-    yield
-    discovery.set_config_override(None)
-    discovery._CACHE.clear()
 
 
 def _write_config(dir_path: Path, *, name: str = "demo", quality: bool = False, body=None) -> Path:

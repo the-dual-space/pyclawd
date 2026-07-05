@@ -18,7 +18,6 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from pyclawd import discovery
 from pyclawd.cli import app
 from pyclawd.commands.ls import (
     _collect_files,
@@ -168,16 +167,6 @@ def test_git_source_respects_gitignore(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # The command — PATH argument + src_dir default (end-to-end via the CLI).
 # --------------------------------------------------------------------------- #
-
-
-@pytest.fixture(autouse=True)
-def _reset_discovery():
-    """``--config`` override + load cache are process-wide; isolate each test."""
-    discovery.set_config_override(None)
-    discovery._CACHE.clear()
-    yield
-    discovery.set_config_override(None)
-    discovery._CACHE.clear()
 
 
 def _write_project(root: Path, *, src_dir: str = "src") -> None:

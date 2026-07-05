@@ -21,7 +21,6 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from pyclawd import discovery
 from pyclawd.cli import app
 from pyclawd.commands import test as test_cmd
 
@@ -38,16 +37,6 @@ def _all_output(result) -> str:
     with contextlib.suppress(ValueError, AttributeError):
         out += result.stderr or ""
     return out
-
-
-@pytest.fixture(autouse=True)
-def _reset_discovery():
-    """The ``--config`` override and load cache are process-wide; isolate each test."""
-    discovery.set_config_override(None)
-    discovery._CACHE.clear()
-    yield
-    discovery.set_config_override(None)
-    discovery._CACHE.clear()
 
 
 def _write_config(dir_path: Path, markers: dict) -> Path:
