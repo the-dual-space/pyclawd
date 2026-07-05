@@ -251,4 +251,6 @@ pyclawd.web.registry:Registry.set_star(self, name: str, starred: bool) -> None
 pyclawd.web.sessions:Pane
 pyclawd.web.sessions:list_panes(path_to_project: Mapping[str, str] | None=None) -> list[Pane]
 pyclawd.web.sessions:send_to_pane(target: str, text: str, *, submit: bool=False, focus: bool=False, known_targets: set[str] | None=None) -> bool
+pyclawd.web.storage:read_json(path: Path, default: _T) -> _T
+pyclawd.web.storage:write_json(path: Path, data: object, *, sort_keys: bool=False) -> None
 pyclawd:__version__

@@ -501,9 +501,14 @@ def create_app(default_project: str | None = None, registry: Registry | None = N
     return app
 
 
+def _sse_frame(payload: dict) -> str:
+    """Serialise *payload* as one Server-Sent Event ``data:`` frame."""
+    return f"data: {json.dumps(payload)}\n\n"
+
+
 def _sse(token: str) -> str:
-    """Format *token* as a single Server-Sent Event frame."""
-    return f"data: {json.dumps({'token': token})}\n\n"
+    """Format a state-token *token* as a single SSE frame."""
+    return _sse_frame({"token": token})
 
 
 async def _token_stream(repo: GitRepo, base: Ref, target: Ref) -> AsyncIterator[str]:
@@ -529,7 +534,7 @@ async def _token_stream(repo: GitRepo, base: Ref, target: Ref) -> AsyncIterator[
 
 def _agent_event(kind: str, text: str) -> str:
     """Format one agent-progress line as an SSE frame (``kind`` ∈ log/tool/result/done/error)."""
-    return f"data: {json.dumps({'kind': kind, 'text': text})}\n\n"
+    return _sse_frame({"kind": kind, "text": text})
 
 
 def _clip(text: str, limit: int = 160) -> str:
@@ -716,7 +721,7 @@ async def _reply_stream(
         author="agent",
         parent=target.id,
     )
-    yield f"data: {json.dumps({'kind': 'comment', 'text': '', 'comment': reply.__dict__})}\n\n"
+    yield _sse_frame({"kind": "comment", "text": "", "comment": reply.__dict__})
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[mGKHF]")

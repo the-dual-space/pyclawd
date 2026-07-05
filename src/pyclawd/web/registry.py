@@ -17,10 +17,11 @@ The default location honours ``$PYCLAWD_WEB_CONFIG`` then falls back to
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+
+from .storage import read_json, write_json
 
 #: Default roots scanned for git repos when the config names none.
 DEFAULT_ROOTS: tuple[str, ...] = ("~/workspace",)
@@ -66,17 +67,11 @@ class Registry:
 
     def _load(self) -> dict:
         """Return the parsed config, or an empty dict if absent/corrupt."""
-        if not self.config_path.exists():
-            return {}
-        try:
-            return json.loads(self.config_path.read_text()) or {}
-        except (OSError, ValueError):
-            return {}
+        return read_json(self.config_path, {})
 
     def _save(self, config: dict) -> None:
         """Write *config* back to disk, creating the parent directory as needed."""
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        self.config_path.write_text(json.dumps(config, indent=2, sort_keys=True))
+        write_json(self.config_path, config, sort_keys=True)
 
     # -- roots ------------------------------------------------------------- #
 

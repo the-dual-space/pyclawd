@@ -17,12 +17,13 @@ were written.
 
 from __future__ import annotations
 
-import json
 import re
 import uuid
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
+
+from .storage import read_json, write_json
 
 #: Allowed comment authors — a human reviewer, or an AI agent replying in-thread.
 Author = str  # one of {"human", "agent"}
@@ -82,13 +83,7 @@ class CommentStore:
 
     def _load(self, project: str) -> list[Comment]:
         """Return *project*'s stored comments (empty if the file is absent/corrupt)."""
-        path = self._path(project)
-        if not path.exists():
-            return []
-        try:
-            raw = json.loads(path.read_text()) or []
-        except (OSError, ValueError):
-            return []
+        raw: list = read_json(self._path(project), [])
         out: list[Comment] = []
         for item in raw:
             if isinstance(item, dict) and "id" in item:
@@ -98,9 +93,7 @@ class CommentStore:
 
     def _save(self, project: str, comments: list[Comment]) -> None:
         """Persist *comments* for *project*, creating the base directory as needed."""
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        path = self._path(project)
-        path.write_text(json.dumps([asdict(c) for c in comments], indent=2))
+        write_json(self._path(project), [asdict(c) for c in comments])
 
     # -- reads ------------------------------------------------------------- #
 
