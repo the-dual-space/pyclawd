@@ -27,16 +27,14 @@ Exit-code contract (agent-native, deterministic):
 from __future__ import annotations
 
 import hashlib
-import subprocess
 from pathlib import Path
 
 import typer
 
 from .. import run
-from ..golden import GoldenStore, iter_baseline_files
 from ..logs import work_root
 from ..project import BenchmarkConfig, Project
-from .golden import orphan_keys
+from . import _oracle
 
 
 def _baseline_dir(project: Project) -> Path:
@@ -59,22 +57,10 @@ def _baseline_dir(project: Project) -> Path:
 
 
 def _bench_or_exit(project: Project) -> BenchmarkConfig:
-    """Return ``project.benchmark`` or exit ``2`` with a clear, actionable message.
-
-    Args:
-        project: The loaded project config.
-
-    Returns:
-        The project's benchmark configuration.
-    """
-    if project.benchmark is None:
-        typer.secho(
-            "benchmark not configured — add BenchmarkConfig to .pyclawd/config.py",
-            fg="red",
-            err=True,
-        )
-        raise typer.Exit(2)
-    return project.benchmark
+    """Return ``project.benchmark`` or exit ``2`` (see :func:`_oracle.config_or_exit`)."""
+    return _oracle.config_or_exit(
+        project.benchmark, "benchmark", "add BenchmarkConfig to .pyclawd/config.py"
+    )
 
 
 def _bench_opts(project: Project, benchmark: BenchmarkConfig) -> list[str]:
@@ -106,68 +92,23 @@ def _bench_opts(project: Project, benchmark: BenchmarkConfig) -> list[str]:
 
 
 def _pytest_cmd(project: Project, benchmark: BenchmarkConfig) -> list[str]:
-    """Build the base pytest argv that selects the benchmark suite.
-
-    The plugin is auto-registered via its ``pytest11`` entry point, so it is **not**
-    passed with ``-p`` (that would double-register and crash).
-
-    Args:
-        project: The loaded project (provides the env prefix + tests dir).
-        benchmark: The benchmark configuration (provides the marker + settings).
-
-    Returns:
-        The argv ``<python> -m pytest <tests_dir> -o bench_*=… -m <marker>``.
-    """
-    prefix = run.python_prefix(project)
-    return [
-        *prefix,
-        "-m",
-        "pytest",
-        project.test.tests_dir,
-        *_bench_opts(project, benchmark),
-        "-m",
-        benchmark.marker,
-    ]
+    """Build the base pytest argv selecting the benchmark suite (see :func:`_oracle.pytest_cmd`)."""
+    return _oracle.pytest_cmd(project, _bench_opts(project, benchmark), benchmark.marker)
 
 
-def _parse_nodeids(text: str) -> set[str]:
-    """Parse test node ids from ``pytest --collect-only -q`` output (best-effort)."""
-    nodeids: set[str] = set()
-    for raw in text.splitlines():
-        line = raw.strip()
-        if "::" in line and not line.startswith(("<", "=", "no tests")):
-            nodeids.add(line)
-    return nodeids
-
-
-def _collect_nodeids(project: Project, benchmark: BenchmarkConfig) -> set[str] | None:
-    """Collect the benchmark suite's node ids, or ``None`` if collection fails."""
-    cmd = [
-        *run.python_prefix(project),
-        "-m",
-        "pytest",
-        project.test.tests_dir,
-        *_bench_opts(project, benchmark),
-        "--collect-only",
-        "-q",
-        "-m",
-        benchmark.marker,
-    ]
-    assert project.root is not None
-    try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(project.root),
-            env=run.repo_env(project.root),
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return None
-    no_tests_collected = 5
-    if proc.returncode not in (0, no_tests_collected):
-        return None
-    return _parse_nodeids(proc.stdout)
+def _bench_ctx(project: Project, benchmark: BenchmarkConfig) -> _oracle.OracleCtx:
+    """Bundle the benchmark-specific bits the shared ``status`` / ``prune`` need."""
+    return _oracle.OracleCtx(
+        project=project,
+        label="benchmark",
+        title="Benchmark",
+        noun="benchmark",
+        baseline_dir=_baseline_dir(project),
+        opts=_bench_opts(project, benchmark),
+        marker=benchmark.marker,
+        empty_suffix=" on this machine to record them",
+        commit_hint=None,
+    )
 
 
 def _compare(expr: str | None = None) -> None:
@@ -220,92 +161,14 @@ def status() -> None:
     """Show the local-baseline inventory (per file + grand total) and orphans."""
     project = run.load_project_or_exit()
     benchmark = _bench_or_exit(project)
-    baseline_dir = _baseline_dir(project)
-    files = iter_baseline_files(baseline_dir)
-
-    if not files:
-        typer.secho(
-            f"no baselines under {baseline_dir} (run `pyclawd benchmark update` on this "
-            "machine to record them).",
-            fg="yellow",
-        )
-        raise typer.Exit(0)
-
-    typer.secho(f"Benchmark baselines under {baseline_dir}:", bold=True)
-    total = 0
-    all_keys: list[str] = []
-    for path in files:
-        keys = GoldenStore(path).keys()
-        total += len(keys)
-        all_keys += keys
-        typer.echo(f"  {path.name}  ({len(keys)} benchmark{'s' if len(keys) != 1 else ''})")
-    typer.secho(f"  total: {total} benchmark{'s' if total != 1 else ''}", fg="green")
-
-    collected = _collect_nodeids(project, benchmark)
-    if collected is None:
-        typer.secho(
-            "  (orphan check skipped — could not collect the benchmark suite)", fg="bright_black"
-        )
-        raise typer.Exit(0)
-
-    orphans = orphan_keys(all_keys, collected)
-    if orphans:
-        typer.secho(
-            f"\n  {len(orphans)} orphaned entr{'ies' if len(orphans) != 1 else 'y'}:", fg="yellow"
-        )
-        for key in orphans:
-            typer.secho(f"    ⚠ {key}", fg="yellow")
-        typer.secho("  run `pyclawd benchmark prune` to remove them.", fg="bright_black")
-    else:
-        typer.secho("  no orphaned entries.", fg="bright_black")
-    raise typer.Exit(0)
+    _oracle.status(_bench_ctx(project, benchmark))
 
 
 def prune() -> None:
     """Remove orphaned baseline entries (test gone) and delete emptied files."""
     project = run.load_project_or_exit()
     benchmark = _bench_or_exit(project)
-    baseline_dir = _baseline_dir(project)
-    files = iter_baseline_files(baseline_dir)
-
-    if not files:
-        typer.secho(f"no baselines under {baseline_dir} — nothing to prune.", fg="yellow")
-        raise typer.Exit(0)
-
-    collected = _collect_nodeids(project, benchmark)
-    if collected is None:
-        typer.secho(
-            "prune refused — could not collect the benchmark suite to determine orphans.",
-            fg="red",
-            err=True,
-        )
-        raise typer.Exit(1)
-
-    removed = 0
-    for path in files:
-        store = GoldenStore(path)
-        orphans = orphan_keys(store.keys(), collected)
-        if not orphans:
-            continue
-        for key in orphans:
-            store.remove(key)
-            removed += 1
-            typer.secho(f"  ✗ removed {path.name} :: {key}", fg="red")
-        if store.is_empty():
-            path.unlink()
-            typer.secho(f"  ✗ deleted empty {path.name}", fg="red")
-        else:
-            store.save()
-
-    if removed == 0:
-        typer.secho("no orphaned entries — nothing pruned.", fg="green")
-    else:
-        typer.secho(
-            f"\npruned {removed} orphaned entr{'ies' if removed != 1 else 'y'} "
-            f"from the local baselines under {baseline_dir}.",
-            fg="yellow",
-        )
-    raise typer.Exit(0)
+    _oracle.prune(_bench_ctx(project, benchmark))
 
 
 def register(app: typer.Typer) -> None:

@@ -19,7 +19,7 @@ import typer
 
 from pyclawd import Project, TestConfig
 from pyclawd.commands import golden as golden_cmd
-from pyclawd.commands.golden import orphan_keys
+from pyclawd.commands._oracle import orphan_keys
 from pyclawd.project import DoctorConfig, GoldenConfig
 
 

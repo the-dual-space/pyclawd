@@ -29,25 +29,14 @@ import typer
 from .. import run
 from ..api import SurfaceDiff, diff_surface, extract_surface, read_baseline, write_baseline
 from ..project import ApiConfig, Project
+from . import _oracle
 
 
 def _api_or_exit(project: Project) -> ApiConfig:
-    """Return ``project.api`` or exit ``2`` with a clear, actionable message.
-
-    Args:
-        project: The loaded project config.
-
-    Returns:
-        The project's api configuration.
-    """
-    if project.api is None:
-        typer.secho(
-            "api not configured — add ApiConfig(packages=[...]) to .pyclawd/config.py",
-            fg="red",
-            err=True,
-        )
-        raise typer.Exit(2)
-    return project.api
+    """Return ``project.api`` or exit ``2`` (thin wrapper over :func:`_oracle.config_or_exit`)."""
+    return _oracle.config_or_exit(
+        project.api, "api", "add ApiConfig(packages=[...]) to .pyclawd/config.py"
+    )
 
 
 def _current_surface(project: Project, api: ApiConfig) -> list[str]:

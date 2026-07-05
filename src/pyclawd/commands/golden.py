@@ -29,33 +29,20 @@ Exit-code contract (agent-native, deterministic):
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import typer
 
 from .. import run
-from ..golden import GoldenStore, iter_baseline_files
 from ..project import GoldenConfig, Project
+from . import _oracle
 
 
 def _golden_or_exit(project: Project) -> GoldenConfig:
-    """Return ``project.golden`` or exit ``2`` with a clear, actionable message.
-
-    Args:
-        project: The loaded project config.
-
-    Returns:
-        The project's golden configuration.
-    """
-    if project.golden is None:
-        typer.secho(
-            "golden not configured — add GoldenConfig to .pyclawd/config.py",
-            fg="red",
-            err=True,
-        )
-        raise typer.Exit(2)
-    return project.golden
+    """Return ``project.golden`` or exit ``2`` (see :func:`_oracle.config_or_exit`)."""
+    return _oracle.config_or_exit(
+        project.golden, "golden", "add GoldenConfig to .pyclawd/config.py"
+    )
 
 
 def _golden_opts(project: Project, golden: GoldenConfig) -> list[str]:
@@ -94,111 +81,22 @@ def _golden_opts(project: Project, golden: GoldenConfig) -> list[str]:
 
 
 def _pytest_cmd(project: Project, golden: GoldenConfig) -> list[str]:
-    """Build the base pytest argv that selects the golden suite.
-
-    The plugin is auto-registered via its ``pytest11`` entry point, so it is **not**
-    passed with ``-p`` (that would double-register and crash).
-
-    Args:
-        project: The loaded project (provides the env prefix + tests dir).
-        golden: The golden configuration (provides the marker + tolerances).
-
-    Returns:
-        The argv ``<python> -m pytest <tests_dir> -o golden_*=… -m <marker>``.
-    """
-    prefix = run.python_prefix(project)
-    return [
-        *prefix,
-        "-m",
-        "pytest",
-        project.test.tests_dir,
-        *_golden_opts(project, golden),
-        "-m",
-        golden.marker,
-    ]
+    """Build the base pytest argv selecting the golden suite (see :func:`_oracle.pytest_cmd`)."""
+    return _oracle.pytest_cmd(project, _golden_opts(project, golden), golden.marker)
 
 
-def orphan_keys(store_keys: list[str], collected_nodeids: set[str]) -> list[str]:
-    """Return baseline keys whose test case no longer exists among collected node ids.
-
-    A snapshot key is the test node id's last ``::``-segment (e.g.
-    ``test_minimize[sphere]``) with an optional ``::label`` suffix (e.g.
-    ``test_minimize[sphere]::F``). A key is an **orphan** when its part *before*
-    the ``::label`` is not among the last ``::``-segments of the collected node
-    ids — i.e. the test that would record it is gone.
-
-    Args:
-        store_keys: All recorded baseline keys (across the relevant stores).
-        collected_nodeids: Test node ids pytest currently collects for the marker.
-
-    Returns:
-        The orphaned keys, in input order.
-    """
-    live = {nodeid.rsplit("::", 1)[-1] for nodeid in collected_nodeids}
-    return [key for key in store_keys if key.split("::", 1)[0] not in live]
-
-
-def _parse_nodeids(text: str) -> set[str]:
-    """Parse test node ids from ``pytest --collect-only -q`` output (best-effort).
-
-    Args:
-        text: The captured stdout of a collect-only run.
-
-    Returns:
-        The set of node-id lines (those containing ``::``).
-    """
-    nodeids: set[str] = set()
-    for raw in text.splitlines():
-        line = raw.strip()
-        if "::" in line and not line.startswith(("<", "=", "no tests")):
-            nodeids.add(line)
-    return nodeids
-
-
-def _collect_nodeids(project: Project, golden: GoldenConfig) -> set[str] | None:
-    """Collect the golden suite's node ids, or ``None`` if collection fails.
-
-    Runs ``pytest --collect-only -q -m <marker>`` (the plugin is auto-registered)
-    and parses the node-id lines. Returns ``None`` (so callers skip orphan detection
-    gracefully) when pytest cannot be launched or exits non-zero.
-
-    Args:
-        project: The loaded project (provides the env + root).
-        golden: The golden configuration (provides the marker).
-
-    Returns:
-        The collected node ids, or ``None`` on any collection failure.
-    """
-    prefix = run.python_prefix(project)
-    cmd = [
-        *prefix,
-        "-m",
-        "pytest",
-        project.test.tests_dir,
-        *_golden_opts(project, golden),
-        "--collect-only",
-        "-q",
-        "-m",
-        golden.marker,
-    ]
-    assert project.root is not None
-    try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(project.root),
-            env=run.repo_env(project.root),
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return None
-    # pytest exit 5 = "no tests collected" — a valid empty result (e.g. every golden
-    # test was removed), NOT a collection failure. Treat it as an empty set so prune
-    # can drop the now-orphaned baselines instead of refusing.
-    no_tests_collected = 5
-    if proc.returncode not in (0, no_tests_collected):
-        return None
-    return _parse_nodeids(proc.stdout)
+def _golden_ctx(project: Project, golden: GoldenConfig) -> _oracle.OracleCtx:
+    """Bundle the golden-specific bits the shared ``status`` / ``prune`` need."""
+    return _oracle.OracleCtx(
+        project=project,
+        label="golden",
+        title="Golden",
+        noun="snapshot",
+        baseline_dir=project.path(golden.baseline_dir),
+        opts=_golden_opts(project, golden),
+        marker=golden.marker,
+        commit_hint=golden.baseline_dir,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -250,106 +148,17 @@ def update(
 
 
 def status() -> None:
-    """Show the committed-baseline inventory (per file + grand total) and orphans.
-
-    Reads every baseline file under ``golden.baseline_dir`` and prints its entry
-    count, then a grand total. Best-effort: it also collects the live golden node
-    ids and flags any orphaned entries (a test that no longer exists); if
-    collection fails it still prints the snapshot inventory.
-    """
+    """Show the committed-baseline inventory (per file + grand total) and orphans."""
     project = run.load_project_or_exit()
     golden = _golden_or_exit(project)
-    baseline_dir = project.path(golden.baseline_dir)
-    files = iter_baseline_files(baseline_dir)
-
-    if not files:
-        typer.secho(
-            f"no baselines under {baseline_dir} (run `pyclawd golden update`).", fg="yellow"
-        )
-        raise typer.Exit(0)
-
-    typer.secho(f"Golden baselines under {baseline_dir}:", bold=True)
-    total = 0
-    all_keys: list[str] = []
-    for path in files:
-        keys = GoldenStore(path).keys()
-        total += len(keys)
-        all_keys += keys
-        typer.echo(f"  {path.name}  ({len(keys)} snapshot{'s' if len(keys) != 1 else ''})")
-    typer.secho(f"  total: {total} snapshot{'s' if total != 1 else ''}", fg="green")
-
-    collected = _collect_nodeids(project, golden)
-    if collected is None:
-        typer.secho(
-            "  (orphan check skipped — could not collect the golden suite)",
-            fg="bright_black",
-        )
-        raise typer.Exit(0)
-
-    orphans = orphan_keys(all_keys, collected)
-    if orphans:
-        typer.secho(
-            f"\n  {len(orphans)} orphaned entr{'ies' if len(orphans) != 1 else 'y'}:", fg="yellow"
-        )
-        for key in orphans:
-            typer.secho(f"    ⚠ {key}", fg="yellow")
-        typer.secho("  run `pyclawd golden prune` to remove them.", fg="bright_black")
-    else:
-        typer.secho("  no orphaned entries.", fg="bright_black")
-    raise typer.Exit(0)
+    _oracle.status(_golden_ctx(project, golden))
 
 
 def prune() -> None:
-    """Remove orphaned baseline entries (test gone) and delete emptied files.
-
-    Collects the live golden node ids, drops every orphaned entry from its store,
-    saves modified stores, and deletes any file that becomes empty. Every removal
-    is printed — nothing is removed silently. If the suite cannot be collected,
-    pruning is refused (exit ``1``) rather than guessing what is orphaned.
-    """
+    """Remove orphaned baseline entries (test gone) and delete emptied files."""
     project = run.load_project_or_exit()
     golden = _golden_or_exit(project)
-    baseline_dir = project.path(golden.baseline_dir)
-    files = iter_baseline_files(baseline_dir)
-
-    if not files:
-        typer.secho(f"no baselines under {baseline_dir} — nothing to prune.", fg="yellow")
-        raise typer.Exit(0)
-
-    collected = _collect_nodeids(project, golden)
-    if collected is None:
-        typer.secho(
-            "prune refused — could not collect the golden suite to determine orphans.",
-            fg="red",
-            err=True,
-        )
-        raise typer.Exit(1)
-
-    removed = 0
-    for path in files:
-        store = GoldenStore(path)
-        orphans = orphan_keys(store.keys(), collected)
-        if not orphans:
-            continue
-        for key in orphans:
-            store.remove(key)
-            removed += 1
-            typer.secho(f"  ✗ removed {path.name} :: {key}", fg="red")
-        if store.is_empty():
-            path.unlink()
-            typer.secho(f"  ✗ deleted empty {path.name}", fg="red")
-        else:
-            store.save()
-
-    if removed == 0:
-        typer.secho("no orphaned entries — nothing pruned.", fg="green")
-    else:
-        typer.secho(
-            f"\npruned {removed} orphaned entr{'ies' if removed != 1 else 'y'} "
-            f"— review `git diff {golden.baseline_dir}` and commit.",
-            fg="yellow",
-        )
-    raise typer.Exit(0)
+    _oracle.prune(_golden_ctx(project, golden))
 
 
 def _strip_preamble(src: str, *, drop_future: bool = False, drop_module: str | None = None) -> str:

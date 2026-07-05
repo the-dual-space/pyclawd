@@ -53,7 +53,6 @@ pyclawd.commands.docs:docs_status() -> None
 pyclawd.commands.docs:docs_timings(top: int=typer.Option(0, '--top', help='Show only the slowest N (0 = all).')) -> None
 pyclawd.commands.docs:docs_validate() -> None
 pyclawd.commands.docs:register(app: typer.Typer) -> None
-pyclawd.commands.golden:orphan_keys(store_keys: list[str], collected_nodeids: set[str]) -> list[str]
 pyclawd.commands.golden:prune() -> None
 pyclawd.commands.golden:register(app: typer.Typer) -> None
 pyclawd.commands.golden:status() -> None

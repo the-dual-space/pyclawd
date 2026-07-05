@@ -35,28 +35,33 @@ def _under_root(path: Path, root: Path) -> bool:
 _UNCONFIGURED = 2
 
 
-def compile() -> None:
-    """Build the project's extensions in place (``project.build.compile_cmd``)."""
+def _build_step(cmd_attr: str, label: str) -> None:
+    """Run a configured build command (``project.build.<cmd_attr>``), or exit 2 if unset.
+
+    Args:
+        cmd_attr: The :class:`~pyclawd.project.BuildConfig` field holding the argv
+            (``"compile_cmd"`` / ``"dist_cmd"``).
+        label: The command name used in the "not configured" message.
+    """
     project = run.load_project_or_exit()
-    if project.build is None or not project.build.compile_cmd:
+    cmd = getattr(project.build, cmd_attr, None) if project.build is not None else None
+    if not cmd:
         typer.secho(
-            "compile: not configured for this project (project.build.compile_cmd is empty).",
+            f"{label}: not configured for this project (project.build.{cmd_attr} is empty).",
             fg="yellow",
         )
         raise typer.Exit(_UNCONFIGURED)
-    raise typer.Exit(run.python(project.build.compile_cmd))
+    raise typer.Exit(run.python(cmd))
+
+
+def compile() -> None:
+    """Build the project's extensions in place (``project.build.compile_cmd``)."""
+    _build_step("compile_cmd", "compile")
 
 
 def dist() -> None:
     """Build a source distribution (``project.build.dist_cmd``)."""
-    project = run.load_project_or_exit()
-    if project.build is None or not project.build.dist_cmd:
-        typer.secho(
-            "dist: not configured for this project (project.build.dist_cmd is empty).",
-            fg="yellow",
-        )
-        raise typer.Exit(_UNCONFIGURED)
-    raise typer.Exit(run.python(project.build.dist_cmd))
+    _build_step("dist_cmd", "dist")
 
 
 def clean(
