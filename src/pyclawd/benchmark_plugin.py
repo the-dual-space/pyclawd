@@ -32,10 +32,20 @@ import pytest
 
 from pyclawd.benchmark import BenchmarkError, compare_time, make_entry, measure
 from pyclawd.golden import GoldenStore, module_baseline_path
-from pyclawd.pytest_plugin import derive_node_key
+from pyclawd.pytest_plugin import derive_node_key, warn_if_fragile_key
 
 #: Default marker when nothing is configured.
 DEFAULT_MARKER = "benchmark"
+
+
+class BenchmarkIdWarning(UserWarning):
+    """A benchmark baseline key rests on an auto-generated (index-based) parametrize id.
+
+    Index-based ids (e.g. ``case0``) silently shift when parametrize cases are added or
+    reordered, orphaning baselines. The benchmark sibling of
+    :class:`pyclawd.pytest_plugin.GoldenIdWarning` — emitted as a nudge to pin explicit
+    ``ids=`` on the parametrize.
+    """
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -136,6 +146,7 @@ def _snapshot(pyfuncitem: pytest.Function, seconds: float, rtol: float) -> None:
     assert module_file is not None
     store = GoldenStore(module_baseline_path(_baseline_dir(config), Path(module_file).stem))
     key = derive_node_key(pyfuncitem.nodeid)
+    warn_if_fragile_key(pyfuncitem, key, category=BenchmarkIdWarning, label="benchmark")
 
     if config.getoption("--benchmark-update"):
         store.set(key, make_entry(seconds, rtol=rtol))

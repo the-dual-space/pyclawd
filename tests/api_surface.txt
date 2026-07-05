@@ -12,6 +12,7 @@ pyclawd.benchmark:BenchmarkError(AssertionError)
 pyclawd.benchmark:compare_time(new_seconds: float, entry: dict[str, Any]) -> BenchmarkComparison
 pyclawd.benchmark:make_entry(seconds: float, *, rtol: float=0.25) -> dict[str, Any]
 pyclawd.benchmark:measure(call: Any, warmup: int, repeat: int) -> float
+pyclawd.benchmark_plugin:BenchmarkIdWarning(UserWarning)
 pyclawd.benchmark_plugin:DEFAULT_MARKER
 pyclawd.benchmark_plugin:pytest_addoption(parser: pytest.Parser) -> None
 pyclawd.benchmark_plugin:pytest_configure(config: pytest.Config) -> None
@@ -154,6 +155,7 @@ pyclawd.pytest_plugin:param_id(node_key: str) -> str | None
 pyclawd.pytest_plugin:pytest_addoption(parser: pytest.Parser) -> None
 pyclawd.pytest_plugin:pytest_configure(config: pytest.Config) -> None
 pyclawd.pytest_plugin:pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None
+pyclawd.pytest_plugin:warn_if_fragile_key(node: pytest.Function, key: str, *, category: type[Warning], label: str) -> None
 pyclawd.repo:changed_files(root: Path, against: str='HEAD') -> list[str]
 pyclawd.repo:changed_line_map(root: Path, against: str='HEAD') -> dict[str, set[int]]
 pyclawd.repo:find_repo_root(start: str | Path | None=None) -> Path | None
