@@ -21,6 +21,7 @@ from pathlib import Path
 import typer
 
 from ..discovery import ConfigError, load_project
+from ..version import version_tuple
 
 #: Matches a Keep-a-Changelog version header, e.g. ``## [0.1.0] - 2026-06-24``.
 _VERSION_HEADER = re.compile(r"^##\s*\[([^\]]+)\]")
@@ -46,18 +47,6 @@ def _changelog_text() -> str | None:
     if candidate.is_file():
         return candidate.read_text(encoding="utf-8")
     return None
-
-
-def _version_tuple(token: str) -> tuple[int, ...] | None:
-    """Parse a dotted version token into an int tuple, or ``None`` if not numeric.
-
-    Non-numeric tokens (e.g. ``"Unreleased"``) return ``None`` and are treated by
-    the caller as newer than any released version.
-    """
-    try:
-        return tuple(int(x) for x in token.strip().split("."))
-    except ValueError:
-        return None
 
 
 def _sections(text: str) -> list[tuple[str, str]]:
@@ -89,10 +78,10 @@ def _sections(text: str) -> list[tuple[str, str]]:
 
 def _newer_sections(text: str, since: str) -> list[tuple[str, str]]:
     """Return changelog sections strictly newer than *since* (``Unreleased`` always wins)."""
-    base = _version_tuple(since)
+    base = version_tuple(since)
     out: list[tuple[str, str]] = []
     for token, body in _sections(text):
-        version = _version_tuple(token)
+        version = version_tuple(token)
         if version is None or base is None or version > base:
             out.append((token, body))
     return out

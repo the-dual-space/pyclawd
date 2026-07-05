@@ -39,9 +39,11 @@ Preamble that should be ignored.
 
 
 def test_version_tuple_parses_numeric_and_rejects_words():
-    assert cl._version_tuple("0.2.0") == (0, 2, 0)
-    assert cl._version_tuple("1.10.3") == (1, 10, 3)
-    assert cl._version_tuple("Unreleased") is None
+    from pyclawd.version import version_tuple
+
+    assert version_tuple("0.2.0") == (0, 2, 0)
+    assert version_tuple("1.10.3") == (1, 10, 3)
+    assert version_tuple("Unreleased") is None
 
 
 def test_sections_splits_on_headers_and_drops_preamble():

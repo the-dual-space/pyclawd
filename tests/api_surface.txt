@@ -183,6 +183,8 @@ pyclawd.tests:print_timings(project: Project, top: int=25, slow_threshold: float
 pyclawd.tests:run_changed(project: Project, args: list[str], against: str, list_only: bool) -> int
 pyclawd.tests:run_suite(extra_args: list[str], markers: str, label: str, project: Project, jobs: str | None=None) -> int
 pyclawd.tests:tier_markers(project: Project, tier: str) -> str
+pyclawd.version:major_minor(v: str) -> tuple[int, int] | None
+pyclawd.version:version_tuple(token: str) -> tuple[int, ...] | None
 pyclawd.web.app:AddBody(BaseModel)
 pyclawd.web.app:AgentBody(BaseModel)
 pyclawd.web.app:CommentBody(BaseModel)

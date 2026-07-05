@@ -148,9 +148,11 @@ def test_check_pyclawd_reports_version_and_location():
 
 
 def test_mm_parses_major_minor():
-    assert doctor._mm("0.1.0") == (0, 1)
-    assert doctor._mm("2.10.3") == (2, 10)
-    assert doctor._mm("nonsense") is None
+    from pyclawd.version import major_minor
+
+    assert major_minor("0.1.0") == (0, 1)
+    assert major_minor("2.10.3") == (2, 10)
+    assert major_minor("nonsense") is None
 
 
 def test_compat_disabled_when_unset():

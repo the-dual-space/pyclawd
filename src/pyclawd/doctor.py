@@ -32,6 +32,7 @@ from .skills_install import (
     orphaned_installed_skills,
     user_skills_dir,
 )
+from .version import major_minor
 
 _MARK = {OK: "[green]✓[/green]", WARN: "[yellow]![/yellow]", FAIL: "[red]✗[/red]"}
 
@@ -64,15 +65,6 @@ def _check_pyclawd() -> Check:
     return Check(OK, "pyclawd", f"{version}{editable} — {location}")
 
 
-def _mm(version: str) -> tuple[int, int] | None:
-    """Parse a ``major.minor`` tuple from a version string, or ``None`` if unparseable."""
-    parts = version.strip().split(".")
-    try:
-        return (int(parts[0]), int(parts[1]))
-    except (IndexError, ValueError):
-        return None
-
-
 def _check_pyclawd_compat(declared: str) -> Check | None:
     """Compare the config's declared pyclawd version to the running one.
 
@@ -85,7 +77,7 @@ def _check_pyclawd_compat(declared: str) -> Check | None:
     import pyclawd
 
     running = getattr(pyclawd, "__version__", "?")
-    want, have = _mm(declared), _mm(running)
+    want, have = major_minor(declared), major_minor(running)
     if want is None or have is None:
         return Check(
             WARN, "pyclawd compat", f"built on {declared}, running {running} (unparseable)"

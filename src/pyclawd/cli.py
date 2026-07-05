@@ -34,6 +34,7 @@ from .commands import test as test_cmd
 from .commands import web as web_cmd
 from .discovery import ConfigError, load_project, set_config_override
 from .doctor import dump_json, run_doctor
+from .version import major_minor
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -91,15 +92,6 @@ def root() -> None:
     typer.echo(str(project.root))
 
 
-def _major_minor(v: str) -> tuple[int, int] | None:
-    """Parse a ``major.minor`` tuple from a version string, or ``None`` if unparseable."""
-    parts = v.strip().split(".")
-    try:
-        return (int(parts[0]), int(parts[1]))
-    except (IndexError, ValueError):
-        return None
-
-
 @app.command()
 def version(
     json_output: bool = typer.Option(False, "--json", help="Emit JSON instead of text."),
@@ -131,7 +123,7 @@ def version(
 
     match: bool | None = None
     if config_version is not None:
-        rm, cm = _major_minor(running), _major_minor(config_version)
+        rm, cm = major_minor(running), major_minor(config_version)
         match = rm is not None and cm is not None and rm == cm
 
     if json_output:
