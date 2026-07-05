@@ -1,4 +1,4 @@
-// The review tray: lists every staged line comment grouped by file (click one to
+// The review tray: lists every review comment grouped by file (click one to
 // jump to its line), and sends them, as one assembled message, into the selected
 // claude tmux pane (or copies them to the clipboard).
 import { useMemo, useState } from "react";
@@ -11,15 +11,15 @@ import { useAgentAvailable } from "@/hooks";
 import { useStore } from "@/store";
 import { WORKING_TREE } from "@/types";
 
-/** Build the human-readable review message from the staged comment threads. */
+/** Build the human-readable review message from the comment threads. */
 function reviewText(
   project: string | null,
   base: string,
   target: string,
-  staged: ReturnType<typeof useStore>["staged"],
+  comments: ReturnType<typeof useStore>["comments"],
 ): string {
   const tl = target === WORKING_TREE ? "working tree" : target;
-  const roots = staged.filter((c) => !c.parent);
+  const roots = comments.filter((c) => !c.parent);
   const head =
     `Code review of \`${project}\` — comparing ${base} → ${tl}.\n` +
     `${roots.length} comment thread(s) were left, each anchored to a specific line:`;
@@ -27,7 +27,7 @@ function reviewText(
     .map((c, i) => {
       const side = c.side === "old" ? "old/left side" : "new/right side";
       const code = c.code.trim() ? `\n   on line (${side}): \`${c.code.trim()}\`` : ` (${side})`;
-      const replies = staged
+      const replies = comments
         .filter((r) => r.parent === c.id)
         .map((r) => `\n   ↳ ${r.author === "agent" ? "AI" : "reply"}: ${r.body}`)
         .join("");
@@ -80,7 +80,7 @@ function agentPrompt(review: string): string {
 }
 
 export function ReviewTray() {
-  const { project, base, target, staged, session, settings, unstage, clearStaged, selectFile, setScrollTo } =
+  const { project, base, target, comments, session, settings, unstage, clearStaged, selectFile, setScrollTo } =
     useStore();
   const { data: agent } = useAgentAvailable();
   const [open, setOpen] = useState(false);
@@ -88,12 +88,12 @@ export function ReviewTray() {
   const [agentRun, setAgentRun] = useState<{ prompt: string; full: boolean } | null>(null);
 
   // Root comments are threads; each may carry replies (human or AI) sharing its anchor.
-  const roots = useMemo(() => staged.filter((c) => !c.parent), [staged]);
+  const roots = useMemo(() => comments.filter((c) => !c.parent), [comments]);
   const replyCount = useMemo(() => {
     const m = new Map<string, number>();
-    for (const c of staged) if (c.parent) m.set(c.parent, (m.get(c.parent) ?? 0) + 1);
+    for (const c of comments) if (c.parent) m.set(c.parent, (m.get(c.parent) ?? 0) + 1);
     return m;
-  }, [staged]);
+  }, [comments]);
 
   // Group threads by file, preserving first-seen order, for the grouped list.
   const groups = useMemo(() => {
@@ -108,7 +108,7 @@ export function ReviewTray() {
     setOpen(false);
   };
 
-  const text = () => reviewText(project, base, target, staged);
+  const text = () => reviewText(project, base, target, comments);
 
   const copy = async () => {
     await copyText(text());

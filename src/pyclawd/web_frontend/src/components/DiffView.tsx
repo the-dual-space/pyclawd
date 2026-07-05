@@ -1,6 +1,6 @@
 // Renders one file's FileView: inline or split hunks, or a full-file view. Each side
 // carries its own comment gutter — a 💬 fades in on hover and stays (highlighted) on
-// lines that already have a staged comment. In split view that means a comment
+// lines that already have a comment. In split view that means a comment
 // affordance and line numbers on BOTH the old (left) and new (right) sides.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -17,12 +17,12 @@ import "remark-github-blockquote-alert/alert.css";
  *  alerts (`> [!NOTE]` → styled callout), so agent-authored docs render richly. */
 const DOC_PLUGINS = [remarkGfm, remarkGemoji, remarkAlert];
 
-import { api, type StreamEvent, streamReply } from "@/api";
+import { api, streamReply } from "@/api";
 import { Markdown } from "@/components/Markdown";
-import { useAgentAvailable, usePersisted } from "@/hooks";
+import { useAgentAvailable, useAgentStream, usePersisted } from "@/hooks";
 import { statusBadge } from "@/lib/status";
 import { useStore } from "@/store";
-import type { DiffLine, FileView, Hunk, StagedComment } from "@/types";
+import type { DiffLine, FileView, Hunk, Comment } from "@/types";
 
 /** Total px of the non-content split columns: 2×(marker+gutter) + divider. */
 const SPLIT_FIXED_PX = 28 + 46 + 7 + 28 + 46;
@@ -60,7 +60,7 @@ function anchor(line: DiffLine): Anchor | null {
 }
 
 export function DiffView({ view }: { view: FileView }) {
-  const { layout, project, selected, staged, scrollTo, setScrollTo, selectFile, settings, setSettings } =
+  const { layout, project, selected, comments, scrollTo, setScrollTo, selectFile, settings, setSettings } =
     useStore();
   const [composing, setComposing] = useState<Composing>(null);
   const [editing, setEditing] = useState<string | null>(null); // draft content, or null
@@ -128,7 +128,7 @@ export function DiffView({ view }: { view: FileView }) {
     return () => clearTimeout(t);
   }, [scrollTo, view, setScrollTo]);
 
-  const fileComments = staged.filter((c) => c.file === selected && !c.parent).length;
+  const fileComments = comments.filter((c) => c.file === selected && !c.parent).length;
   const shared = { composing, setComposing };
 
   // Files that render (markdown / html) get a Source ⟷ Rendered toggle. The rendered
@@ -319,13 +319,13 @@ function stampHtmlLines(html: string): string {
  *  the file show as a persistent, editable list below, and commented elements are
  *  outlined in the page. Comments share the store/line model with the Source view. */
 function RenderedHtml({ content }: { content: string }) {
-  const { selected, staged } = useStore();
+  const { selected, comments } = useStore();
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [active, setActive] = useState<{ line: number; code: string } | null>(null);
   const [height, setHeight] = useState(400);
   const stamped = useMemo(() => stampHtmlLines(content), [content]);
 
-  const notes = staged.filter((c) => c.file === selected && c.side === "new");
+  const notes = comments.filter((c) => c.file === selected && c.side === "new");
   const commentedLines = useMemo(() => new Set(notes.map((n) => n.line)), [notes]);
 
   const highlight = (doc: Document) => {
@@ -461,9 +461,9 @@ function RenderedMarkdown({ content }: { content: string }) {
 
 /** A single rendered markdown block plus its inline comment thread + add affordance. */
 function BlockRow({ block }: { block: MdBlock }) {
-  const { selected, staged } = useStore();
+  const { selected, comments } = useStore();
   const [adding, setAdding] = useState(false);
-  const notes = staged.filter(
+  const notes = comments.filter(
     (c) => c.file === selected && c.side === "new" && c.line === block.line,
   );
   const open = adding || notes.length > 0;
@@ -707,9 +707,9 @@ function HunkHeader({ header, children }: { header: string; children: React.Reac
 
 /** The per-side comment gutter cell. */
 function Marker({ anchor, onOpen }: { anchor: Anchor | null; onOpen: (a: Anchor) => void }) {
-  const { selected, staged } = useStore();
+  const { selected, comments } = useStore();
   const has = anchor
-    ? staged.some((c) => c.file === selected && c.side === anchor.side && c.line === anchor.line)
+    ? comments.some((c) => c.file === selected && c.side === anchor.side && c.line === anchor.line)
     : false;
   return (
     <td
@@ -728,20 +728,20 @@ function Marker({ anchor, onOpen }: { anchor: Anchor | null; onOpen: (a: Anchor)
   );
 }
 
-/** Renders the composer/staged-notes rows for a single inline line's anchor. */
+/** Renders the composer/comment-note rows for a single inline line's anchor. */
 function Extras({ anchor, composing, setComposing }: { anchor: Anchor | null } & Shared) {
   if (!anchor) return null;
   return <ExtrasGroup anchors={[anchor]} composing={composing} setComposing={setComposing} />;
 }
 
-/** Emits a full-width row under a diff row carrying composer + staged notes per anchor. */
+/** Emits a full-width row under a diff row carrying composer + comment notes per anchor. */
 function ExtrasGroup({
   anchors,
   composing,
   setComposing,
   children,
 }: { anchors: (Anchor | null)[]; children?: React.ReactNode } & Shared) {
-  const { selected, staged } = useStore();
+  const { selected, comments } = useStore();
   // Dedup by side:line — in split view a context row passes the same anchor for
   // both sides, which would otherwise render the note twice (and collide on key).
   const seen = new Set<string>();
@@ -755,7 +755,7 @@ function ExtrasGroup({
     })
     .map((a) => ({
       anchor: a,
-      notes: staged.filter((c) => c.file === selected && c.side === a.side && c.line === a.line),
+      notes: comments.filter((c) => c.file === selected && c.side === a.side && c.line === a.line),
       composing: composing?.side === a.side && composing?.line === a.line,
     }))
     .filter((x) => x.notes.length > 0 || x.composing);
@@ -888,7 +888,7 @@ function LineRef({ anchor }: { anchor: Anchor }) {
 }
 
 /** A round chip marking a comment's author — 💬 human vs 🤖 agent. */
-function AuthorBadge({ author }: { author: StagedComment["author"] }) {
+function AuthorBadge({ author }: { author: Comment["author"] }) {
   const agent = author === "agent";
   return (
     <span
@@ -902,22 +902,16 @@ function AuthorBadge({ author }: { author: StagedComment["author"] }) {
 }
 
 /** Streams an agent's reply to a thread inline, persisting it on completion. */
-function ReplyRunner({ note, onClose }: { note: StagedComment; onClose: () => void }) {
+function ReplyRunner({ note, onClose }: { note: Comment; onClose: () => void }) {
   const { project, pushComment } = useStore();
-  const [events, setEvents] = useState<StreamEvent[]>([]);
-  const [running, setRunning] = useState(true);
-  const abortRef = useRef<AbortController | null>(null);
+  const { events, setEvents, running, start, abort } = useAgentStream();
   const started = useRef(false);
 
   useEffect(() => {
     if (started.current || !project) return;
     started.current = true;
-    const controller = new AbortController();
-    abortRef.current = controller;
-    streamReply(
-      project,
-      note.id,
-      { fullAccess: false },
+    start(
+      (onEvent, signal) => streamReply(project, note.id, { fullAccess: false }, onEvent, signal),
       (e) => {
         if (e.kind === "comment" && e.comment) {
           pushComment(e.comment);
@@ -926,14 +920,8 @@ function ReplyRunner({ note, onClose }: { note: StagedComment; onClose: () => vo
           setEvents((prev) => [...prev, e]);
         }
       },
-      controller.signal,
-    )
-      .catch((err) => {
-        if (err?.name !== "AbortError")
-          setEvents((prev) => [...prev, { kind: "error", text: String(err?.message ?? err) }]);
-      })
-      .finally(() => setRunning(false));
-    return () => controller.abort();
+    );
+    return () => abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -950,7 +938,7 @@ function ReplyRunner({ note, onClose }: { note: StagedComment; onClose: () => vo
           <span className="text-dim">done</span>
         )}
         <button
-          onClick={() => (running ? abortRef.current?.abort() : onClose())}
+          onClick={() => (running ? abort() : onClose())}
           className="ml-auto rounded px-1.5 py-0.5 text-[10px] text-dim hover:bg-panel2"
         >
           {running ? "Stop" : "Close"}
@@ -965,7 +953,7 @@ function ReplyRunner({ note, onClose }: { note: StagedComment; onClose: () => vo
   );
 }
 
-function StagedNote({ note }: { note: StagedComment }) {
+function StagedNote({ note }: { note: Comment }) {
   const { unstage, editComment, setStatus } = useStore();
   const { data: agent } = useAgentAvailable();
   const [editing, setEditing] = useState(false);

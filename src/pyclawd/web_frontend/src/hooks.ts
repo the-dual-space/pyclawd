@@ -1,9 +1,48 @@
 // React Query hooks over the REST API, plus the SSE live-refresh subscription.
 // Server state lives here; UI state lives in the store (store.tsx).
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api } from "@/api";
+import { api, type StreamEvent } from "@/api";
+
+/**
+ * Drive an agent SSE stream: accumulate its progress events, track a running flag,
+ * and expose an abort handle. Shared by the review-tray agent modal (AgentPanel) and
+ * the inline comment-reply runner (ReplyRunner), which had copied this wiring.
+ *
+ * `start(stream, onEvent)` opens a new run: `stream(onEvent, signal)` is the actual
+ * SSE call (e.g. `streamAgent`/`streamReply`). When `onEvent` is omitted each event is
+ * appended to `events`; when provided, the caller decides what to do with each event
+ * (append via the returned `setEvents`, capture a session id / comment frame, …). A
+ * non-abort error is appended as an `error` event; `abort()` stops the current run.
+ */
+export function useAgentStream() {
+  const [events, setEvents] = useState<StreamEvent[]>([]);
+  const [running, setRunning] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const start = useCallback(
+    (
+      stream: (onEvent: (e: StreamEvent) => void, signal: AbortSignal) => Promise<void>,
+      onEvent?: (e: StreamEvent) => void,
+    ) => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setRunning(true);
+      stream((e) => (onEvent ? onEvent(e) : setEvents((prev) => [...prev, e])), controller.signal)
+        .catch((err) => {
+          if (err?.name !== "AbortError")
+            setEvents((prev) => [...prev, { kind: "error", text: String(err?.message ?? err) }]);
+        })
+        .finally(() => setRunning(false));
+    },
+    [],
+  );
+
+  const abort = useCallback(() => abortRef.current?.abort(), []);
+
+  return { events, setEvents, running, start, abort };
+}
 
 /** A piece of state backed by localStorage — for layout prefs like panel sizes. */
 export function usePersisted<T>(key: string, initial: T): [T, (value: T) => void] {

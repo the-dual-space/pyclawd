@@ -1,11 +1,11 @@
 // Client UI state: the active project, the two comparison sides, view controls,
-// the selected file, the tmux target, and staged review comments. Server data is
+// the selected file, the tmux target, and review comments. Server data is
 // React Query's job (hooks.ts); this is everything that is purely local, persisted
 // to localStorage so a reload restores where you were — per project.
 import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from "react";
 
 import { api } from "@/api";
-import type { CommentDraft, CommentStatus, DiffLayout, DiffMode, StagedComment } from "@/types";
+import type { CommentDraft, CommentStatus, DiffLayout, DiffMode, Comment } from "@/types";
 import { WORKING_TREE } from "@/types";
 
 const STORAGE_KEY = "pyclawd.web";
@@ -64,7 +64,7 @@ function load(): Persisted {
 interface State extends PerProject {
   project: string | null;
   session: string | null;
-  staged: StagedComment[];
+  comments: Comment[];
   settings: Settings;
   /** A pending `"side:line"` anchor the diff view should scroll to (transient). */
   scrollTo: string | null;
@@ -80,9 +80,9 @@ type Action =
   | { type: "selectFile"; path: string | null }
   | { type: "scrollTo"; anchor: string | null }
   | { type: "setSession"; target: string | null }
-  | { type: "setComments"; comments: StagedComment[] }
-  | { type: "addComment"; comment: StagedComment }
-  | { type: "patchComment"; comment: StagedComment }
+  | { type: "setComments"; comments: Comment[] }
+  | { type: "addComment"; comment: Comment }
+  | { type: "patchComment"; comment: Comment }
   | { type: "removeComment"; id: string }
   | { type: "setSettings"; value: Partial<Settings> };
 
@@ -116,7 +116,7 @@ function reducer(state: State, action: Action): State {
       const saved = load();
       const pp = { ...DEFAULTS, ...saved.pp[action.name] };
       // Comments are server-owned now; a project-change effect hydrates them.
-      next = { ...state, ...pp, project: action.name, staged: [] };
+      next = { ...state, ...pp, project: action.name, comments: [] };
       break;
     }
     case "setBase":
@@ -144,25 +144,25 @@ function reducer(state: State, action: Action): State {
       next = { ...state, session: action.target };
       break;
     case "setComments":
-      next = { ...state, staged: action.comments };
+      next = { ...state, comments: action.comments };
       break;
     case "addComment":
       // Ignore a duplicate id (e.g. a reply frame racing a refetch).
-      next = state.staged.some((c) => c.id === action.comment.id)
+      next = state.comments.some((c) => c.id === action.comment.id)
         ? state
-        : { ...state, staged: [...state.staged, action.comment] };
+        : { ...state, comments: [...state.comments, action.comment] };
       break;
     case "patchComment":
       next = {
         ...state,
-        staged: state.staged.map((c) => (c.id === action.comment.id ? action.comment : c)),
+        comments: state.comments.map((c) => (c.id === action.comment.id ? action.comment : c)),
       };
       break;
     case "removeComment":
       // Drop the comment and any replies anchored to it.
       next = {
         ...state,
-        staged: state.staged.filter((c) => c.id !== action.id && c.parent !== action.id),
+        comments: state.comments.filter((c) => c.id !== action.id && c.parent !== action.id),
       };
       break;
     case "setSettings":
@@ -180,7 +180,7 @@ function initialState(): State {
     project: null,
     selected: null,
     session: saved.session,
-    staged: [],
+    comments: [],
     settings: saved.settings,
     scrollTo: null,
   };
@@ -204,7 +204,7 @@ interface Store extends State {
   unstage: (id: string) => Promise<void>;
   clearStaged: () => Promise<void>;
   /** Insert a comment the client already has (e.g. a streamed agent reply). */
-  pushComment: (comment: StagedComment) => void;
+  pushComment: (comment: Comment) => void;
   setSettings: (value: Partial<Settings>) => void;
 }
 
@@ -263,7 +263,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!project) return;
         // Deleting a root cascades its replies server-side.
         await Promise.all(
-          state.staged.filter((c) => !c.parent).map((c) => api.deleteComment(project, c.id)),
+          state.comments.filter((c) => !c.parent).map((c) => api.deleteComment(project, c.id)),
         );
         dispatch({ type: "setComments", comments: [] });
       },

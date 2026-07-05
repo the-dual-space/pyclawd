@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { type StreamEvent, streamAgent } from "@/api";
 import { Markdown } from "@/components/Markdown";
 import { Button } from "@/components/ui/button";
+import { useAgentStream } from "@/hooks";
 
 interface AgentPanelProps {
   project: string;
@@ -77,35 +78,25 @@ function EventLine({ event }: { event: StreamEvent }) {
 const MODELS = ["sonnet", "opus", "haiku"];
 
 export function AgentPanel({ project, prompt, fullAccess, onClose }: AgentPanelProps) {
-  const [events, setEvents] = useState<StreamEvent[]>([]);
-  const [running, setRunning] = useState(true);
+  const { events, setEvents, running, start, abort } = useAgentStream();
   const [model, setModel] = useState("sonnet");
   const [session, setSession] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const modelRef = useRef(model);
   modelRef.current = model;
   const started = useRef(false);
 
   // Run one turn (initial prompt, or a follow-up that resumes the session id).
   const run = (text: string, resume?: string) => {
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setRunning(true);
-    streamAgent(
-      { project, prompt: text, fullAccess, model: modelRef.current, resume },
+    start(
+      (onEvent, signal) =>
+        streamAgent({ project, prompt: text, fullAccess, model: modelRef.current, resume }, onEvent, signal),
       (e) => {
         if (e.kind === "session") setSession(e.text); // capture id; don't render
         else setEvents((prev) => [...prev, e]);
       },
-      controller.signal,
-    )
-      .catch((err) => {
-        if (err?.name !== "AbortError")
-          setEvents((prev) => [...prev, { kind: "error", text: String(err.message ?? err) }]);
-      })
-      .finally(() => setRunning(false));
+    );
   };
 
   // Kick off the initial run exactly once.
@@ -113,7 +104,7 @@ export function AgentPanel({ project, prompt, fullAccess, onClose }: AgentPanelP
     if (started.current) return;
     started.current = true;
     run(prompt);
-    return () => abortRef.current?.abort();
+    return () => abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -202,7 +193,7 @@ export function AgentPanel({ project, prompt, fullAccess, onClose }: AgentPanelP
           </div>
           <div className="flex items-center gap-2">
             {running ? (
-              <Button onClick={() => abortRef.current?.abort()}>Stop</Button>
+              <Button onClick={abort}>Stop</Button>
             ) : (
               <Button onClick={onClose}>Close</Button>
             )}

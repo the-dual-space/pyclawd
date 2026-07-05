@@ -102,7 +102,7 @@ export type CommentStatus = "open" | "resolved";
 /** A persisted, authored line comment. A root note (`parent === null`) plus any
  *  replies sharing its anchor form one thread; an `agent` author is an AI reply.
  *  Mirrors the `Comment` dataclass in `pyclawd.web.comments`. */
-export interface StagedComment {
+export interface Comment {
   id: string;
   file: string;
   line: number;

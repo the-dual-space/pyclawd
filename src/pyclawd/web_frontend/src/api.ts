@@ -7,7 +7,7 @@ import type {
   ProjectsResponse,
   RefInfo,
   Session,
-  StagedComment,
+  Comment,
 } from "@/types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -100,16 +100,16 @@ export const api = {
     }),
 
   comments: (project: string) =>
-    request<{ comments: StagedComment[] }>(`/api/comments${qs({ project })}`),
+    request<{ comments: Comment[] }>(`/api/comments${qs({ project })}`),
 
   addComment: (project: string, draft: CommentDraft) =>
-    request<StagedComment>("/api/comments", {
+    request<Comment>("/api/comments", {
       method: "POST",
       body: JSON.stringify({ project, ...draft }),
     }),
 
   editComment: (project: string, id: string, patch: { body?: string; status?: string }) =>
-    request<StagedComment>(`/api/comments/${id}`, {
+    request<Comment>(`/api/comments/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ project, ...patch }),
     }),
@@ -132,7 +132,7 @@ export const api = {
 export interface StreamEvent {
   kind: "log" | "text" | "tool" | "result" | "out" | "done" | "error" | "session" | "user" | "comment";
   text: string;
-  comment?: StagedComment;
+  comment?: Comment;
 }
 
 /** POST `body` to `url` and invoke `onEvent` for each SSE frame until the stream ends. */
