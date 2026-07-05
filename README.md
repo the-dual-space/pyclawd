@@ -69,7 +69,7 @@ pyclawd check           # the full quality gate
 | Web diff/review dashboard (extra) | `pyclawd web serve` (needs `pip install 'pyclawd[web]'`) |
 | Repo root / version | `pyclawd root` · `pyclawd version` |
 
-`pyclawd check` runs the quality steps **format-check → lint → typecheck regardless of individual failures** (so you see the full picture in one shot), then runs **test** only if quality passed — with a per-step ✓/✗ summary, the CI-parity "am I done?" gate. Add `--fail-fast` to stop at the first failure, `--fix` to autofix format+lint, `--skip <verb>` to omit a step. Commands for build, dist, and docs only do work when the project configures them; otherwise they degrade gracefully. Override config discovery with `--config PATH` or `PYCLAWD_CONFIG`; by default pyclawd walks up from the cwd to find `.pyclawd/config.py`.
+`pyclawd check` runs the quality steps **format-check → lint → typecheck → descriptions regardless of individual failures** (so you see the full picture in one shot), then runs **test** only if quality passed — with a per-step ✓/✗ summary, the CI-parity "am I done?" gate. Add `--fail-fast` to stop at the first failure, `--fix` to autofix format+lint, `--skip <verb>` to omit a step. Commands for build, dist, and docs only do work when the project configures them; otherwise they degrade gracefully. Override config discovery with `--config PATH` or `PYCLAWD_CONFIG`; by default pyclawd walks up from the cwd to find `.pyclawd/config.py`.
 
 ## Code map — one-line file descriptions
 
@@ -112,7 +112,9 @@ project = Project(
         tests_dir="tests/",
         classname_prefix="tests.",
         integration_files=[],
-        markers={"fast": "not slow and not integration", "default": "not slow", "all": ""},
+        markers={"fast": "not slow and not integration and not golden and not benchmark",
+                 "default": "not slow and not golden and not benchmark",
+                 "all": "not golden and not benchmark"},
     ),
     doctor=DoctorConfig(                  # what `pyclawd doctor` probes
         core_deps=["typer", "rich"],

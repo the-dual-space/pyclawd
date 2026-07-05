@@ -186,9 +186,11 @@ class QualityConfig:
             (e.g. ``["ruff", "format", "--check"]``).
         typecheck_cmd: Argv that type-checks the project (e.g. ``["mypy", "src"]``).
         check_sequence: Ordered verbs the aggregate ``pyclawd check`` runs. Recognised verbs are
-            ``"format-check"``, ``"lint"``, ``"typecheck"``, and ``"test"`` (which
-            maps to the default test tier). Defaults to
-            ``["format-check", "lint", "typecheck", "test"]``.
+            ``"format-check"``, ``"lint"``, ``"typecheck"``, ``"descriptions"`` (the
+            one-line-description gate; a no-op unless ``DescriptionConfig`` is set), and
+            ``"test"`` (which maps to the default test tier). Defaults to
+            ``["format-check", "lint", "typecheck", "test"]``; add ``"descriptions"`` to
+            enforce the description gate (as pyclawd's own config and ``pyclawd new`` do).
     """
 
     lint_cmd: list[str] = field(default_factory=list)

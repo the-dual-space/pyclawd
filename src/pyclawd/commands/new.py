@@ -318,8 +318,11 @@ def _render_config(
         f"        tests_dir={tests_dir!r},\n"
         '        classname_prefix="tests.",\n'
         "        integration_files=[],\n"
-        '        markers={"fast": "not slow and not integration",'
-        ' "default": "not slow", "all": ""},\n'
+        "        markers={\n"
+        '            "fast": "not slow and not integration and not golden and not benchmark",\n'
+        '            "default": "not slow and not golden and not benchmark",\n'
+        '            "all": "not golden and not benchmark",\n'
+        "        },\n"
         "    ),\n"
         f"{docs_block}"
         "    doctor=DoctorConfig(\n"
