@@ -26,7 +26,7 @@ from pyclawd.commands.skills import (
     skill_description,
 )
 
-#: The skills pyclawd ships with — the umbrella ``pyclawd`` router plus four focused
+#: The skills pyclawd ships with — the umbrella ``pyclawd`` router plus the focused
 #: standalone skills. Kept sorted (``bundled_skill_names`` returns sorted order).
 EXPECTED = [
     "pyclawd",
@@ -34,6 +34,7 @@ EXPECTED = [
     "pyclawd-doctor",
     "pyclawd-golden",
     "pyclawd-upgrade",
+    "pyclawd-web",
 ]
 
 

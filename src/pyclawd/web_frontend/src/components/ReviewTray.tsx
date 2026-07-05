@@ -11,7 +11,7 @@ import { useAgentAvailable } from "@/hooks";
 import { useStore } from "@/store";
 import { WORKING_TREE } from "@/types";
 
-/** Build the human-readable review message from the staged comments. */
+/** Build the human-readable review message from the staged comment threads. */
 function reviewText(
   project: string | null,
   base: string,
@@ -19,14 +19,19 @@ function reviewText(
   staged: ReturnType<typeof useStore>["staged"],
 ): string {
   const tl = target === WORKING_TREE ? "working tree" : target;
+  const roots = staged.filter((c) => !c.parent);
   const head =
     `Code review of \`${project}\` — comparing ${base} → ${tl}.\n` +
-    `${staged.length} inline comment(s) were left, each anchored to a specific line:`;
-  const body = staged
+    `${roots.length} comment thread(s) were left, each anchored to a specific line:`;
+  const body = roots
     .map((c, i) => {
       const side = c.side === "old" ? "old/left side" : "new/right side";
       const code = c.code.trim() ? `\n   on line (${side}): \`${c.code.trim()}\`` : ` (${side})`;
-      return `${i + 1}. ${c.file}:${c.line}${code}\n   comment: ${c.body}`;
+      const replies = staged
+        .filter((r) => r.parent === c.id)
+        .map((r) => `\n   ↳ ${r.author === "agent" ? "AI" : "reply"}: ${r.body}`)
+        .join("");
+      return `${i + 1}. ${c.file}:${c.line}${code}\n   comment: ${c.body}${replies}`;
     })
     .join("\n\n");
   return `${head}\n\n${body}`;
@@ -82,12 +87,20 @@ export function ReviewTray() {
   const [msg, setMsg] = useState("");
   const [agentRun, setAgentRun] = useState<{ prompt: string; full: boolean } | null>(null);
 
-  // Group comments by file, preserving first-seen order, for the grouped list.
-  const groups = useMemo(() => {
-    const m = new Map<string, typeof staged>();
-    for (const c of staged) (m.get(c.file) ?? m.set(c.file, []).get(c.file)!).push(c);
-    return [...m.entries()];
+  // Root comments are threads; each may carry replies (human or AI) sharing its anchor.
+  const roots = useMemo(() => staged.filter((c) => !c.parent), [staged]);
+  const replyCount = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of staged) if (c.parent) m.set(c.parent, (m.get(c.parent) ?? 0) + 1);
+    return m;
   }, [staged]);
+
+  // Group threads by file, preserving first-seen order, for the grouped list.
+  const groups = useMemo(() => {
+    const m = new Map<string, typeof roots>();
+    for (const c of roots) (m.get(c.file) ?? m.set(c.file, []).get(c.file)!).push(c);
+    return [...m.entries()];
+  }, [roots]);
 
   const jump = (file: string, side: string, line: number) => {
     selectFile(file);
@@ -110,7 +123,7 @@ export function ReviewTray() {
     setMsg("sending…");
     try {
       await api.send(session, text(), settings.sendSubmit, settings.sendFocus);
-      clearStaged();
+      // Comments persist now — sending no longer wipes them.
       setMsg("sent ✓");
       setTimeout(() => setOpen(false), 650);
     } catch (err) {
@@ -135,15 +148,15 @@ export function ReviewTray() {
       )}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button variant="default" className={staged.length ? "border-accent" : ""}>
-            <b>Review ({staged.length})</b>
+          <Button variant="default" className={roots.length ? "border-accent" : ""}>
+            <b>Review ({roots.length})</b>
             <span className="text-[10px] text-dim">▾</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[460px]">
-        {staged.length === 0 ? (
+        {roots.length === 0 ? (
           <div className="p-6 text-center text-dim">
-            No staged comments.
+            No comments yet.
             <br />
             Click a diff line to add one.
           </div>
@@ -151,7 +164,7 @@ export function ReviewTray() {
           <>
             <div className="flex items-center justify-between border-b border-line px-3 py-2 text-[11px] text-dim">
               <span>
-                <b className="text-fg">{staged.length}</b> comment{staged.length > 1 ? "s" : ""} across{" "}
+                <b className="text-fg">{roots.length}</b> thread{roots.length > 1 ? "s" : ""} across{" "}
                 <b className="text-fg">{groups.length}</b> file{groups.length > 1 ? "s" : ""}
               </span>
             </div>
@@ -185,6 +198,17 @@ export function ReviewTray() {
                       >
                         {c.body}
                       </button>
+                      {replyCount.get(c.id) ? (
+                        <span
+                          className="flex-none rounded-full bg-panel2 px-1.5 text-[10px] text-dim"
+                          title={`${replyCount.get(c.id)} repl${replyCount.get(c.id) === 1 ? "y" : "ies"}`}
+                        >
+                          💬 {replyCount.get(c.id)}
+                        </span>
+                      ) : null}
+                      {c.status === "resolved" && (
+                        <span className="flex-none rounded-full bg-add-bg px-1.5 text-[10px] text-add">✓</span>
+                      )}
                       <button
                         onClick={() => unstage(c.id)}
                         className="flex-none rounded p-0.5 leading-none text-dim opacity-0 transition hover:bg-del-bg hover:text-del group-hover:opacity-100"

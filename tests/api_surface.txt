@@ -184,14 +184,27 @@ pyclawd.tests:run_suite(extra_args: list[str], markers: str, label: str, project
 pyclawd.tests:tier_markers(project: Project, tier: str) -> str
 pyclawd.web.app:AddBody(BaseModel)
 pyclawd.web.app:AgentBody(BaseModel)
+pyclawd.web.app:CommentBody(BaseModel)
+pyclawd.web.app:CommentEditBody(BaseModel)
 pyclawd.web.app:ConfigBody(BaseModel)
 pyclawd.web.app:DeleteFileBody(BaseModel)
 pyclawd.web.app:RemoveBody(BaseModel)
+pyclawd.web.app:ReplyBody(BaseModel)
 pyclawd.web.app:RunBody(BaseModel)
 pyclawd.web.app:SaveFileBody(BaseModel)
 pyclawd.web.app:SendBody(BaseModel)
 pyclawd.web.app:StarBody(BaseModel)
 pyclawd.web.app:create_app(default_project: str | None=None, registry: Registry | None=None) -> FastAPI
+pyclawd.web.comments:Author
+pyclawd.web.comments:Comment
+pyclawd.web.comments:CommentStore
+pyclawd.web.comments:CommentStore.add(self, project: str, *, file: str, line: int, side: str, code: str, body: str, author: Author='human', parent: str | None=None) -> Comment
+pyclawd.web.comments:CommentStore.clear(self, project: str) -> None
+pyclawd.web.comments:CommentStore.delete(self, project: str, comment_id: str) -> bool
+pyclawd.web.comments:CommentStore.edit(self, project: str, comment_id: str, *, body: str | None=None, status: Status | None=None) -> Comment | None
+pyclawd.web.comments:CommentStore.get(self, project: str, comment_id: str) -> Comment | None
+pyclawd.web.comments:CommentStore.list(self, project: str) -> list[Comment]
+pyclawd.web.comments:Status
 pyclawd.web.git:ChangeStatus(str, Enum)
 pyclawd.web.git:Commit
 pyclawd.web.git:DiffLine

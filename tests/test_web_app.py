@@ -222,3 +222,125 @@ def test_event_stream_emits_initial_frame(tmp_path: Path) -> None:
 
     frame = asyncio.run(first_frame())
     assert frame.startswith("data: ") and "token" in frame
+
+
+# -- review comments ------------------------------------------------------- #
+
+
+def test_comment_crud_roundtrip(client: TestClient) -> None:
+    created = client.post(
+        "/api/comments",
+        json={
+            "project": "demo",
+            "file": "a.txt",
+            "line": 2,
+            "side": "new",
+            "code": "line2",
+            "body": "why?",
+        },
+    ).json()
+    assert created["author"] == "human" and created["parent"] is None and created["id"]
+
+    listed = client.get("/api/comments", params={"project": "demo"}).json()["comments"]
+    assert [c["id"] for c in listed] == [created["id"]]
+
+    edited = client.patch(
+        f"/api/comments/{created['id']}", json={"project": "demo", "status": "resolved"}
+    ).json()
+    assert edited["status"] == "resolved"
+
+    assert (
+        client.request(
+            "DELETE", "/api/comments/" + created["id"], params={"project": "demo"}
+        ).status_code
+        == 200
+    )
+    assert client.get("/api/comments", params={"project": "demo"}).json()["comments"] == []
+
+
+def test_human_reply_inherits_anchor(client: TestClient) -> None:
+    root = client.post(
+        "/api/comments",
+        json={
+            "project": "demo",
+            "file": "a.txt",
+            "line": 2,
+            "side": "new",
+            "code": "line2",
+            "body": "root",
+        },
+    ).json()
+    reply = client.post(
+        "/api/comments",
+        json={
+            "project": "demo",
+            "file": "",
+            "line": 0,
+            "side": "new",
+            "code": "",
+            "body": "me too",
+            "parent": root["id"],
+        },
+    ).json()
+    assert reply["parent"] == root["id"] and reply["file"] == "a.txt" and reply["line"] == 2
+
+
+def test_edit_and_delete_unknown_comment_404(client: TestClient) -> None:
+    assert (
+        client.patch("/api/comments/nope", json={"project": "demo", "body": "x"}).status_code == 404
+    )
+    assert (
+        client.request("DELETE", "/api/comments/nope", params={"project": "demo"}).status_code
+        == 404
+    )
+
+
+def test_reply_requires_existing_comment(client: TestClient) -> None:
+    r = client.post("/api/comments/nope/reply", json={"project": "demo"})
+    assert r.status_code == 404
+
+
+def test_reply_needs_claude_cli(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = client.post(
+        "/api/comments",
+        json={
+            "project": "demo",
+            "file": "a.txt",
+            "line": 2,
+            "side": "new",
+            "code": "line2",
+            "body": "q",
+        },
+    ).json()
+    monkeypatch.setattr("pyclawd.web.app.shutil.which", lambda _: None)
+    r = client.post(f"/api/comments/{root['id']}/reply", json={"project": "demo"})
+    assert r.status_code == 400
+
+
+def test_reply_stream_persists_agent_answer(tmp_path: Path) -> None:
+    """`_reply_stream` stores the agent's result as an agent-authored reply."""
+    from pyclawd.web import app as webapp
+    from pyclawd.web.comments import CommentStore
+
+    store = CommentStore(base_dir=tmp_path / "c")
+    root = store.add("demo", file="a.py", line=1, side="new", code="x", body="why?")
+
+    async def fake_frames(*_a: object, **_k: object):
+        yield "text", "let me look"
+        yield "result", "Because it caches.\n\n— 2 turns · $0.01 · 1.2s"
+        yield "done", "agent finished (exit 0)"
+
+    async def drive() -> list[str]:
+        gen = webapp._reply_stream(store, "demo", root, tmp_path, "prompt", False)
+        return [frame async for frame in gen]
+
+    import unittest.mock
+
+    with unittest.mock.patch.object(webapp, "_agent_frames", fake_frames):
+        frames = asyncio.run(drive())
+
+    assert any('"kind": "comment"' in f for f in frames)
+    stored = [c for c in store.list("demo") if c.author == "agent"]
+    assert len(stored) == 1
+    assert stored[0].body == "Because it caches."  # stats footer stripped
+    assert stored[0].parent == root.id

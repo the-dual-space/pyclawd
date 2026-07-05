@@ -29,6 +29,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
+from .comments import Comment, CommentStore
 from .git import WORKING_TREE, GitRepo, Ref
 from .registry import Registry
 from .sessions import list_panes, send_to_pane
@@ -117,6 +118,40 @@ class AgentBody(BaseModel):
     resume: str | None = None
 
 
+class CommentBody(BaseModel):
+    """Body of ``POST /api/comments`` — create a human review comment on a line."""
+
+    project: str | None = None
+    file: str
+    line: int
+    side: str = "new"
+    code: str = ""
+    body: str
+    parent: str | None = None
+
+
+class CommentEditBody(BaseModel):
+    """Body of ``PATCH /api/comments/{id}`` — edit a comment's text and/or status."""
+
+    project: str | None = None
+    body: str | None = None
+    status: str | None = None
+
+
+class ReplyBody(BaseModel):
+    """Body of ``POST /api/comments/{id}/reply`` — ask an agent to answer a thread.
+
+    ``full_access`` mirrors :class:`AgentBody`: ``False`` (default) lets the agent
+    read the code to answer but not run shell commands; ``True`` grants full access.
+    ``model`` picks a CLI model alias. The agent's answer is stored back into the
+    thread as an ``agent``-authored reply.
+    """
+
+    project: str | None = None
+    full_access: bool = False
+    model: str | None = None
+
+
 #: The pyclawd verbs the dashboard can launch, mapped to their argv. An allowlist —
 #: the frontend sends a key, never a raw command, so nothing arbitrary is run.
 _RUN_VERBS: dict[str, list[str]] = {
@@ -153,6 +188,9 @@ def create_app(default_project: str | None = None, registry: Registry | None = N
         The configured :class:`fastapi.FastAPI` app (not yet served).
     """
     reg = registry or Registry.default()
+    # Comments live beside the registry's JSON config, so tests that point the
+    # registry at a tmp_path inherit the same isolation for free.
+    comments = CommentStore(base_dir=reg.config_path.parent / "comments")
     app = FastAPI(title="pyclawd web", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
     def repo_for(project: str | None) -> GitRepo:
@@ -161,6 +199,13 @@ def create_app(default_project: str | None = None, registry: Registry | None = N
         if not path:
             raise HTTPException(status_code=404, detail="unknown project")
         return GitRepo(root=Path(path))
+
+    def project_name(project: str | None) -> str:
+        """Resolve the effective project name (given or default), or 404 if none."""
+        name = project or default_project
+        if not name:
+            raise HTTPException(status_code=404, detail="no project specified")
+        return name
 
     # -- projects ---------------------------------------------------------- #
 
@@ -301,6 +346,69 @@ def create_app(default_project: str | None = None, registry: Registry | None = N
         if not ok:
             raise HTTPException(status_code=400, detail="target is not a running claude session")
         return {"ok": True}
+
+    # -- review comments (persistent, authored, threaded) ------------------ #
+
+    @app.get("/api/comments")
+    def list_comments(project: str | None = None) -> dict:
+        """Return every persisted review comment for the project (oldest first)."""
+        items = comments.list(project_name(project))
+        return {"comments": [c.__dict__ for c in items]}
+
+    @app.post("/api/comments")
+    def add_comment(body: CommentBody) -> dict:
+        """Create a human review comment (or a human reply when ``parent`` is set)."""
+        c = comments.add(
+            project_name(body.project),
+            file=body.file,
+            line=body.line,
+            side=body.side,
+            code=body.code,
+            body=body.body,
+            parent=body.parent,
+        )
+        return c.__dict__
+
+    @app.patch("/api/comments/{comment_id}")
+    def edit_comment(comment_id: str, body: CommentEditBody) -> dict:
+        """Edit a comment's body and/or status (e.g. resolve a thread); 404 if absent."""
+        c = comments.edit(
+            project_name(body.project), comment_id, body=body.body, status=body.status
+        )
+        if c is None:
+            raise HTTPException(status_code=404, detail="unknown comment")
+        return c.__dict__
+
+    @app.delete("/api/comments/{comment_id}")
+    def remove_comment(comment_id: str, project: str | None = None) -> dict:
+        """Delete a comment and its replies; 404 if it did not exist."""
+        if not comments.delete(project_name(project), comment_id):
+            raise HTTPException(status_code=404, detail="unknown comment")
+        return {"ok": True}
+
+    @app.post("/api/comments/{comment_id}/reply")
+    def reply_comment(comment_id: str, body: ReplyBody) -> StreamingResponse:
+        """Have a headless agent answer a thread and store its reply, streaming progress.
+
+        The agent reads the anchored code to answer the human's comment; its final
+        answer is persisted as an ``agent``-authored reply on the same thread and
+        pushed to the client as a terminal ``comment`` SSE frame.
+        """
+        name = project_name(body.project)
+        path = reg.resolve(name)
+        if not path:
+            raise HTTPException(status_code=404, detail="unknown project")
+        target = comments.get(name, comment_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="unknown comment")
+        if shutil.which("claude") is None:
+            raise HTTPException(status_code=400, detail="the 'claude' CLI is not on PATH")
+        thread = [c for c in comments.list(name) if comment_id in (c.id, c.parent)]
+        prompt = _reply_prompt(target, thread)
+        return StreamingResponse(
+            _reply_stream(comments, name, target, Path(path), prompt, body.full_access, body.model),
+            media_type="text/event-stream",
+        )
 
     # -- headless claude agent --------------------------------------------- #
 
@@ -498,20 +606,21 @@ def _summarise_agent_json(line: str) -> list[tuple[str, str]]:
     return []
 
 
-async def _agent_stream(
+async def _agent_frames(
     cwd: Path,
     prompt: str,
     full_access: bool,
     model: str | None = None,
     resume: str | None = None,
-) -> AsyncIterator[str]:
-    """Run ``claude -p`` headless in *cwd* and stream a readable progress log over SSE.
+) -> AsyncIterator[tuple[str, str]]:
+    """Run ``claude -p`` headless in *cwd* and yield distilled ``(kind, text)`` frames.
 
-    With *full_access* the agent runs under ``bypassPermissions`` (edits files AND
-    runs commands unattended); otherwise ``acceptEdits`` (edits only — safer, but it
-    cannot run shell commands). *model* picks a CLI model alias; *resume* continues an
-    existing session id (a follow-up chat turn). Structured ``stream-json`` events are
-    distilled to readable frames; a final ``done`` frame carries the exit code.
+    The pure engine behind both the review-tray agent (:func:`_agent_stream`) and the
+    comment-reply agent (:func:`_reply_stream`): it owns the subprocess and the
+    ``stream-json`` parsing, and the callers decide how to render/persist the frames.
+    With *full_access* the agent runs under ``bypassPermissions`` (edits files AND runs
+    commands); otherwise ``acceptEdits`` (edits only — safer). *model* picks a CLI model
+    alias; *resume* continues a session id. A final ``done`` frame carries the exit code.
     """
     mode = "bypassPermissions" if full_access else "acceptEdits"
     argv = ["-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", mode]
@@ -530,12 +639,84 @@ async def _agent_stream(
         assert proc.stdout is not None
         async for raw in proc.stdout:
             for kind, text in _summarise_agent_json(raw.decode(errors="replace")):
-                yield _agent_event(kind, text)
+                yield kind, text
         code = await proc.wait()
-        yield _agent_event("done", f"agent finished (exit {code})")
+        yield "done", f"agent finished (exit {code})"
     except asyncio.CancelledError:  # client disconnected — stop the agent
         proc.terminate()
         raise
+
+
+async def _agent_stream(
+    cwd: Path,
+    prompt: str,
+    full_access: bool,
+    model: str | None = None,
+    resume: str | None = None,
+) -> AsyncIterator[str]:
+    """Stream :func:`_agent_frames` as SSE frames for the review-tray agent runner."""
+    async for kind, text in _agent_frames(cwd, prompt, full_access, model, resume):
+        yield _agent_event(kind, text)
+
+
+def _reply_prompt(target: Comment, thread: list[Comment]) -> str:
+    """Build the prompt asking an agent to answer a review thread on one line.
+
+    The agent is told it is a reviewer replying in a thread — read the code to answer,
+    keep it concise and in Markdown, and (for a read-only reply) not to edit files.
+    """
+    convo = (
+        "\n".join(f"  - {c.author}: {c.body}" for c in sorted(thread, key=lambda c: c.created_at))
+        or f"  - {target.author}: {target.body}"
+    )
+    return (
+        "You are answering a code-review comment thread in an internal review tool. "
+        "Reply as a reviewer would — read the referenced code to ground your answer, "
+        "then respond concisely in Markdown. Do NOT edit any files; only explain.\n\n"
+        f"File: `{target.file}` — line {target.line} ({target.side} side)\n"
+        f"Line content: `{target.code}`\n\n"
+        f"Thread so far:\n{convo}\n\n"
+        "Write only your reply (no preamble, no restating the question)."
+    )
+
+
+def _strip_stats(result: str) -> str:
+    r"""Drop the ``\n\n— turns · $cost · Ns`` footer that ``result`` frames append."""
+    return result.rsplit("\n\n— ", 1)[0].strip()
+
+
+async def _reply_stream(
+    store: CommentStore,
+    project: str,
+    target: Comment,
+    cwd: Path,
+    prompt: str,
+    full_access: bool,
+    model: str | None = None,
+) -> AsyncIterator[str]:
+    """Run the reply agent, persist its answer as an ``agent`` comment, stream both.
+
+    Forwards the agent's progress frames to the client, captures the final ``result``
+    text, stores it as a reply on *target*'s thread, and emits a terminal ``comment``
+    frame carrying the new comment as JSON so the UI can drop it straight into the thread.
+    """
+    answer = ""
+    async for kind, text in _agent_frames(cwd, prompt, full_access, model):
+        if kind == "result":
+            answer = text
+        yield _agent_event(kind, text)
+    body = _strip_stats(answer) or "(the agent produced no answer)"
+    reply = store.add(
+        project,
+        file=target.file,
+        line=target.line,
+        side=target.side,
+        code=target.code,
+        body=body,
+        author="agent",
+        parent=target.id,
+    )
+    yield f"data: {json.dumps({'kind': 'comment', 'text': '', 'comment': reply.__dict__})}\n\n"
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[mGKHF]")

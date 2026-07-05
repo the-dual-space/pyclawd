@@ -2,10 +2,12 @@
 // shapes from types.ts; non-2xx responses throw with the backend's error detail.
 import type {
   ChangesResponse,
+  CommentDraft,
   FileView,
   ProjectsResponse,
   RefInfo,
   Session,
+  StagedComment,
 } from "@/types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -97,6 +99,26 @@ export const api = {
       body: JSON.stringify({ target, text, submit, focus }),
     }),
 
+  comments: (project: string) =>
+    request<{ comments: StagedComment[] }>(`/api/comments${qs({ project })}`),
+
+  addComment: (project: string, draft: CommentDraft) =>
+    request<StagedComment>("/api/comments", {
+      method: "POST",
+      body: JSON.stringify({ project, ...draft }),
+    }),
+
+  editComment: (project: string, id: string, patch: { body?: string; status?: string }) =>
+    request<StagedComment>(`/api/comments/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ project, ...patch }),
+    }),
+
+  deleteComment: (project: string, id: string) =>
+    request<{ ok: boolean }>(`/api/comments/${id}${qs({ project })}`, {
+      method: "DELETE",
+    }),
+
   agentAvailable: () => request<{ available: boolean }>("/api/agent"),
 
   runAvailable: (project: string) =>
@@ -105,10 +127,12 @@ export const api = {
     ),
 };
 
-/** One streamed progress frame from the agent or the verb runner. */
+/** One streamed progress frame from the agent or the verb runner. A `comment` frame
+ *  (emitted at the end of a reply) carries the persisted agent comment in `comment`. */
 export interface StreamEvent {
-  kind: "log" | "text" | "tool" | "result" | "out" | "done" | "error" | "session" | "user";
+  kind: "log" | "text" | "tool" | "result" | "out" | "done" | "error" | "session" | "user" | "comment";
   text: string;
+  comment?: StagedComment;
 }
 
 /** POST `body` to `url` and invoke `onEvent` for each SSE frame until the stream ends. */
@@ -174,6 +198,22 @@ export const streamAgent = (
       model: opts.model,
       resume: opts.resume,
     },
+    onEvent,
+    signal,
+  );
+
+/** Ask an agent to answer a comment thread; streams progress, ending in a `comment`
+ *  frame that carries the persisted agent reply. */
+export const streamReply = (
+  project: string,
+  commentId: string,
+  opts: { fullAccess: boolean; model?: string },
+  onEvent: (event: StreamEvent) => void,
+  signal?: AbortSignal,
+) =>
+  streamSSE(
+    `/api/comments/${commentId}/reply`,
+    { project, full_access: opts.fullAccess, model: opts.model },
     onEvent,
     signal,
   );

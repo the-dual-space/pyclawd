@@ -67,9 +67,28 @@ same comment shows up everywhere and feeds the review:
 
 Flip between Source and Rendered freely — it's the same comment either way.
 
+Comments are **persisted server-side** (per project, JSON beside the registry config
+— not in the repo, not in `localStorage`), so they survive a reload and are visible to
+the backend. Each comment carries an **author** (`human` 💬 or `agent` 🤖) and an
+optional **parent**, so a root note plus its replies form a **thread**, and each root
+can be marked **open / resolved**.
+
+### AI replies — a comment becomes a conversation
+
+Every root comment has a **🤖 Ask AI** button. It dispatches a headless read-only
+`claude` agent that reads the anchored code, answers the thread, and its reply is
+**stored back into the same thread as an `agent`-authored comment** (progress streams
+inline while it thinks). This is the first half of the "AI responds to comments" loop:
+the human asks on a line, the AI answers on that line, in place. (The heavier "turn a
+comment into a diff / internal PR" step still goes through the Review tray's **Run**
+agent, which edits files.) Backed by `POST /api/comments/{id}/reply`; the CRUD lives at
+`/api/comments`.
+
 ## Turning comments into action (the Review tray)
 
-The **Review (N)** tray lists every staged comment grouped by file. From there:
+The **Review (N)** tray lists every comment **thread** (N = root comments) grouped by
+file, with a reply count and resolved marker per thread. Comments persist, so sending
+no longer clears them. From there:
 
 - **Send → tmux** — assemble the comments into one structured message and paste it
   into the selected running `claude` tmux pane (pick the pane in the session picker).

@@ -93,7 +93,15 @@ export interface Session {
   active: boolean;
 }
 
-/** A staged line comment, assembled into a review and sent to a tmux pane. */
+/** Who wrote a comment — a human reviewer, or an AI agent replying in-thread. */
+export type CommentAuthor = "human" | "agent";
+
+/** A thread's state — matches Status in comments.py. */
+export type CommentStatus = "open" | "resolved";
+
+/** A persisted, authored line comment. A root note (`parent === null`) plus any
+ *  replies sharing its anchor form one thread; an `agent` author is an AI reply.
+ *  Mirrors the `Comment` dataclass in `pyclawd.web.comments`. */
 export interface StagedComment {
   id: string;
   file: string;
@@ -101,6 +109,21 @@ export interface StagedComment {
   side: "old" | "new";
   code: string;
   body: string;
+  author: CommentAuthor;
+  parent: string | null;
+  status: CommentStatus;
+  created_at: string;
+}
+
+/** The fields the client supplies when creating a comment (the server assigns the
+ *  rest: id, author, timestamp; a reply passes the root's `parent` id). */
+export interface CommentDraft {
+  file: string;
+  line: number;
+  side: "old" | "new";
+  code: string;
+  body: string;
+  parent?: string | null;
 }
 
 /** View mode + layout controls. */

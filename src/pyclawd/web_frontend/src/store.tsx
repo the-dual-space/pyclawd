@@ -2,9 +2,10 @@
 // the selected file, the tmux target, and staged review comments. Server data is
 // React Query's job (hooks.ts); this is everything that is purely local, persisted
 // to localStorage so a reload restores where you were — per project.
-import { createContext, useContext, useMemo, useReducer, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from "react";
 
-import type { DiffLayout, DiffMode, StagedComment } from "@/types";
+import { api } from "@/api";
+import type { CommentDraft, CommentStatus, DiffLayout, DiffMode, StagedComment } from "@/types";
 import { WORKING_TREE } from "@/types";
 
 const STORAGE_KEY = "pyclawd.web";
@@ -22,7 +23,6 @@ interface Persisted {
   project: string | null;
   session: string | null;
   pp: Record<string, PerProject>;
-  staged: Record<string, StagedComment[]>;
   settings: Settings;
 }
 
@@ -52,7 +52,7 @@ const SETTINGS_DEFAULTS: Settings = {
 };
 
 function load(): Persisted {
-  const base: Persisted = { project: null, session: null, pp: {}, staged: {}, settings: SETTINGS_DEFAULTS };
+  const base: Persisted = { project: null, session: null, pp: {}, settings: SETTINGS_DEFAULTS };
   try {
     const saved = JSON.parse(localStorage[STORAGE_KEY] ?? "{}");
     return { ...base, ...saved, settings: { ...SETTINGS_DEFAULTS, ...(saved.settings ?? {}) } };
@@ -80,10 +80,10 @@ type Action =
   | { type: "selectFile"; path: string | null }
   | { type: "scrollTo"; anchor: string | null }
   | { type: "setSession"; target: string | null }
-  | { type: "stage"; comment: StagedComment }
-  | { type: "editComment"; id: string; body: string }
-  | { type: "unstage"; id: string }
-  | { type: "clearStaged" }
+  | { type: "setComments"; comments: StagedComment[] }
+  | { type: "addComment"; comment: StagedComment }
+  | { type: "patchComment"; comment: StagedComment }
+  | { type: "removeComment"; id: string }
   | { type: "setSettings"; value: Partial<Settings> };
 
 function persist(state: State): void {
@@ -105,7 +105,6 @@ function persist(state: State): void {
           },
         }
       : prev.pp,
-    staged: state.project ? { ...prev.staged, [state.project]: state.staged } : prev.staged,
   };
   localStorage[STORAGE_KEY] = JSON.stringify(next);
 }
@@ -116,12 +115,8 @@ function reducer(state: State, action: Action): State {
     case "selectProject": {
       const saved = load();
       const pp = { ...DEFAULTS, ...saved.pp[action.name] };
-      next = {
-        ...state,
-        ...pp,
-        project: action.name,
-        staged: saved.staged[action.name] ?? [],
-      };
+      // Comments are server-owned now; a project-change effect hydrates them.
+      next = { ...state, ...pp, project: action.name, staged: [] };
       break;
     }
     case "setBase":
@@ -148,20 +143,27 @@ function reducer(state: State, action: Action): State {
     case "setSession":
       next = { ...state, session: action.target };
       break;
-    case "stage":
-      next = { ...state, staged: [...state.staged, action.comment] };
+    case "setComments":
+      next = { ...state, staged: action.comments };
       break;
-    case "editComment":
+    case "addComment":
+      // Ignore a duplicate id (e.g. a reply frame racing a refetch).
+      next = state.staged.some((c) => c.id === action.comment.id)
+        ? state
+        : { ...state, staged: [...state.staged, action.comment] };
+      break;
+    case "patchComment":
       next = {
         ...state,
-        staged: state.staged.map((c) => (c.id === action.id ? { ...c, body: action.body } : c)),
+        staged: state.staged.map((c) => (c.id === action.comment.id ? action.comment : c)),
       };
       break;
-    case "unstage":
-      next = { ...state, staged: state.staged.filter((c) => c.id !== action.id) };
-      break;
-    case "clearStaged":
-      next = { ...state, staged: [] };
+    case "removeComment":
+      // Drop the comment and any replies anchored to it.
+      next = {
+        ...state,
+        staged: state.staged.filter((c) => c.id !== action.id && c.parent !== action.id),
+      };
       break;
     case "setSettings":
       next = { ...state, settings: { ...state.settings, ...action.value } };
@@ -194,10 +196,15 @@ interface Store extends State {
   selectFile: (path: string | null) => void;
   setScrollTo: (anchor: string | null) => void;
   setSession: (target: string | null) => void;
-  stage: (comment: StagedComment) => void;
-  editComment: (id: string, body: string) => void;
-  unstage: (id: string) => void;
-  clearStaged: () => void;
+  /** Create a comment (or a reply, via `draft.parent`); the server assigns id/author. */
+  stage: (draft: CommentDraft) => Promise<void>;
+  editComment: (id: string, body: string) => Promise<void>;
+  /** Toggle a thread's open/resolved status. */
+  setStatus: (id: string, status: CommentStatus) => Promise<void>;
+  unstage: (id: string) => Promise<void>;
+  clearStaged: () => Promise<void>;
+  /** Insert a comment the client already has (e.g. a streamed agent reply). */
+  pushComment: (comment: StagedComment) => void;
   setSettings: (value: Partial<Settings>) => void;
 }
 
@@ -205,6 +212,20 @@ const StoreContext = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
+
+  // Hydrate the active project's comments from the server (they live server-side now).
+  useEffect(() => {
+    if (!state.project) return;
+    let cancelled = false;
+    api
+      .comments(state.project)
+      .then((r) => !cancelled && dispatch({ type: "setComments", comments: r.comments }))
+      .catch(() => !cancelled && dispatch({ type: "setComments", comments: [] }));
+    return () => {
+      cancelled = true;
+    };
+  }, [state.project]);
+
   const store = useMemo<Store>(
     () => ({
       ...state,
@@ -217,10 +238,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       selectFile: (path) => dispatch({ type: "selectFile", path }),
       setScrollTo: (anchor) => dispatch({ type: "scrollTo", anchor }),
       setSession: (target) => dispatch({ type: "setSession", target }),
-      stage: (comment) => dispatch({ type: "stage", comment }),
-      editComment: (id, body) => dispatch({ type: "editComment", id, body }),
-      unstage: (id) => dispatch({ type: "unstage", id }),
-      clearStaged: () => dispatch({ type: "clearStaged" }),
+      stage: async (draft) => {
+        if (!state.project) return;
+        const created = await api.addComment(state.project, draft);
+        dispatch({ type: "addComment", comment: created });
+      },
+      editComment: async (id, body) => {
+        if (!state.project) return;
+        const updated = await api.editComment(state.project, id, { body });
+        dispatch({ type: "patchComment", comment: updated });
+      },
+      setStatus: async (id, status) => {
+        if (!state.project) return;
+        const updated = await api.editComment(state.project, id, { status });
+        dispatch({ type: "patchComment", comment: updated });
+      },
+      unstage: async (id) => {
+        if (!state.project) return;
+        await api.deleteComment(state.project, id);
+        dispatch({ type: "removeComment", id });
+      },
+      clearStaged: async () => {
+        const project = state.project;
+        if (!project) return;
+        // Deleting a root cascades its replies server-side.
+        await Promise.all(
+          state.staged.filter((c) => !c.parent).map((c) => api.deleteComment(project, c.id)),
+        );
+        dispatch({ type: "setComments", comments: [] });
+      },
+      pushComment: (comment) => dispatch({ type: "addComment", comment }),
       setSettings: (value) => dispatch({ type: "setSettings", value }),
     }),
     [state],

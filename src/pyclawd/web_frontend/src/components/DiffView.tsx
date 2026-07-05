@@ -17,9 +17,9 @@ import "remark-github-blockquote-alert/alert.css";
  *  alerts (`> [!NOTE]` → styled callout), so agent-authored docs render richly. */
 const DOC_PLUGINS = [remarkGfm, remarkGemoji, remarkAlert];
 
-import { api } from "@/api";
+import { api, type StreamEvent, streamReply } from "@/api";
 import { Markdown } from "@/components/Markdown";
-import { usePersisted } from "@/hooks";
+import { useAgentAvailable, usePersisted } from "@/hooks";
 import { statusBadge } from "@/lib/status";
 import { useStore } from "@/store";
 import type { DiffLine, FileView, Hunk, StagedComment } from "@/types";
@@ -128,7 +128,7 @@ export function DiffView({ view }: { view: FileView }) {
     return () => clearTimeout(t);
   }, [scrollTo, view, setScrollTo]);
 
-  const fileComments = staged.filter((c) => c.file === selected).length;
+  const fileComments = staged.filter((c) => c.file === selected && !c.parent).length;
   const shared = { composing, setComposing };
 
   // Files that render (markdown / html) get a Source ⟷ Rendered toggle. The rendered
@@ -780,17 +780,10 @@ function ExtrasGroup({
 }
 
 function Composer({ anchor, onClose }: { anchor: Anchor; onClose: () => void }) {
-  const { selected, staged, stage } = useStore();
+  const { selected, stage } = useStore();
   const submit = (body: string) => {
     if (!selected) return;
-    stage({
-      id: `c${Date.now()}_${staged.length}`,
-      file: selected,
-      line: anchor.line,
-      side: anchor.side,
-      code: anchor.code,
-      body,
-    });
+    void stage({ file: selected, line: anchor.line, side: anchor.side, code: anchor.code, body });
     onClose();
   };
   return (
@@ -894,26 +887,126 @@ function LineRef({ anchor }: { anchor: Anchor }) {
   );
 }
 
-function StagedNote({ note }: { note: StagedComment }) {
-  const { unstage, editComment } = useStore();
-  const [editing, setEditing] = useState(false);
+/** A round chip marking a comment's author — 💬 human vs 🤖 agent. */
+function AuthorBadge({ author }: { author: StagedComment["author"] }) {
+  const agent = author === "agent";
+  return (
+    <span
+      className={`grid h-5 w-5 flex-none place-items-center rounded-full text-[10px] leading-none ${
+        agent ? "bg-[#e8e0ff]" : "bg-[#ddf4ff]"
+      }`}
+    >
+      {agent ? "🤖" : "💬"}
+    </span>
+  );
+}
 
+/** Streams an agent's reply to a thread inline, persisting it on completion. */
+function ReplyRunner({ note, onClose }: { note: StagedComment; onClose: () => void }) {
+  const { project, pushComment } = useStore();
+  const [events, setEvents] = useState<StreamEvent[]>([]);
+  const [running, setRunning] = useState(true);
+  const abortRef = useRef<AbortController | null>(null);
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (started.current || !project) return;
+    started.current = true;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    streamReply(
+      project,
+      note.id,
+      { fullAccess: false },
+      (e) => {
+        if (e.kind === "comment" && e.comment) {
+          pushComment(e.comment);
+          onClose();
+        } else {
+          setEvents((prev) => [...prev, e]);
+        }
+      },
+      controller.signal,
+    )
+      .catch((err) => {
+        if (err?.name !== "AbortError")
+          setEvents((prev) => [...prev, { kind: "error", text: String(err?.message ?? err) }]);
+      })
+      .finally(() => setRunning(false));
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const last = events[events.length - 1];
+  return (
+    <div className="border-t border-line bg-panel px-3 py-2 text-[11.5px]">
+      <div className="flex items-center gap-2">
+        {running ? (
+          <span className="flex items-center gap-1.5 text-accent">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" /> AI is
+            reading the code…
+          </span>
+        ) : (
+          <span className="text-dim">done</span>
+        )}
+        <button
+          onClick={() => (running ? abortRef.current?.abort() : onClose())}
+          className="ml-auto rounded px-1.5 py-0.5 text-[10px] text-dim hover:bg-panel2"
+        >
+          {running ? "Stop" : "Close"}
+        </button>
+      </div>
+      {last && last.kind !== "done" && (
+        <div className="mt-1 truncate font-mono text-[11px] text-dim" title={last.text}>
+          {last.kind === "tool" ? last.text : last.text.split("\n")[0]}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StagedNote({ note }: { note: StagedComment }) {
+  const { unstage, editComment, setStatus } = useStore();
+  const { data: agent } = useAgentAvailable();
+  const [editing, setEditing] = useState(false);
+  const [replying, setReplying] = useState(false);
+
+  const isAgent = note.author === "agent";
+  const isReply = note.parent !== null;
   const startEdit = () => setEditing(true);
 
   return (
-    <div className="group/c overflow-hidden rounded-md border border-line bg-canvas shadow-sm">
+    <div
+      className={`group/c overflow-hidden rounded-md border shadow-sm ${
+        isAgent ? "border-[#c9b8f0] bg-[#faf8ff]" : "border-line bg-canvas"
+      } ${isReply ? "ml-4" : ""}`}
+    >
       <div className="flex items-center gap-2 border-b border-line bg-panel px-3 py-1.5 text-[11px]">
-        <CommentBadge />
-        <span className="font-semibold text-fg">Review note</span>
-        <LineRef anchor={{ line: note.line, side: note.side, code: note.code }} />
-        <span className="ml-auto rounded-full border border-[#e6d8a8] bg-[#fff8e6] px-1.5 py-0.5 text-[10px] font-medium text-mod">
-          pending
+        <AuthorBadge author={note.author} />
+        <span className="font-semibold text-fg">
+          {isAgent ? "AI reply" : isReply ? "Reply" : "Review note"}
         </span>
-        {!editing && (
+        <LineRef anchor={{ line: note.line, side: note.side, code: note.code }} />
+        {!isReply && (
+          <button
+            onClick={() => setStatus(note.id, note.status === "resolved" ? "open" : "resolved")}
+            title="Toggle resolved"
+            className={`ml-auto rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
+              note.status === "resolved"
+                ? "border-add/40 bg-add-bg text-add"
+                : "border-[#e6d8a8] bg-[#fff8e6] text-mod"
+            }`}
+          >
+            {note.status === "resolved" ? "resolved ✓" : "open"}
+          </button>
+        )}
+        {!isAgent && !editing && (
           <button
             onClick={startEdit}
             title="Edit comment"
-            className="grid h-7 w-7 flex-none place-items-center rounded-md text-[15px] leading-none text-dim transition hover:bg-panel2 hover:text-accent"
+            className={`grid h-7 w-7 flex-none place-items-center rounded-md text-[15px] leading-none text-dim transition hover:bg-panel2 hover:text-accent ${
+              isReply ? "ml-auto" : ""
+            }`}
           >
             ✎
           </button>
@@ -921,7 +1014,9 @@ function StagedNote({ note }: { note: StagedComment }) {
         <button
           onClick={() => unstage(note.id)}
           title="Delete comment"
-          className="grid h-7 w-7 flex-none place-items-center rounded-md text-[15px] leading-none text-dim transition hover:bg-del-bg hover:text-del"
+          className={`grid h-7 w-7 flex-none place-items-center rounded-md text-[15px] leading-none text-dim transition hover:bg-del-bg hover:text-del ${
+            isAgent ? "ml-auto" : ""
+          }`}
         >
           ✕
         </button>
@@ -931,20 +1026,34 @@ function StagedNote({ note }: { note: StagedComment }) {
           initial={note.body}
           saveLabel="Save"
           onSave={(body) => {
-            editComment(note.id, body);
+            void editComment(note.id, body);
             setEditing(false);
           }}
           onCancel={() => setEditing(false)}
         />
       ) : (
         <div
-          onClick={startEdit}
-          title="Click to edit"
-          className="cursor-text px-3 py-2"
+          onClick={isAgent ? undefined : startEdit}
+          title={isAgent ? "" : "Click to edit"}
+          className={isAgent ? "px-3 py-2" : "cursor-text px-3 py-2"}
         >
           <Markdown>{note.body}</Markdown>
         </div>
       )}
+      {/* Only a root comment offers an AI reply — a reply shares the root's thread. */}
+      {!isReply && !editing && !replying && (
+        <div className="flex items-center gap-2 border-t border-line px-3 py-1.5">
+          <button
+            onClick={() => setReplying(true)}
+            disabled={!agent?.available}
+            title={agent?.available ? "Ask an AI agent to answer this comment" : "claude CLI not found"}
+            className="rounded-md px-2 py-0.5 text-[11px] font-medium text-accent hover:bg-panel2 disabled:cursor-not-allowed disabled:text-dim disabled:opacity-60"
+          >
+            🤖 Ask AI
+          </button>
+        </div>
+      )}
+      {replying && <ReplyRunner note={note} onClose={() => setReplying(false)} />}
     </div>
   );
 }
