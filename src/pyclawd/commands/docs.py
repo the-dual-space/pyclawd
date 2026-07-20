@@ -425,7 +425,9 @@ def docs_serve(
     background: bool = typer.Option(
         False, "--background", "-b", help="Detach and return immediately."
     ),
-    bind: str = typer.Option("0.0.0.0", help="Address to bind (0.0.0.0 = reachable over LAN)."),
+    bind: str = typer.Option(
+        "127.0.0.1", help="Address to bind (pass 0.0.0.0 to expose over the LAN)."
+    ),
 ) -> None:
     """Serve the built HTML (the configured docs build dir).
 
