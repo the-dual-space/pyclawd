@@ -74,7 +74,7 @@ baseline — there is no fixture to call.
 @pytest.mark.golden
 def test_minimize():
     res = minimize(get_problem("sphere"), seed=42)
-    return res.F                       # captured + compared against the baseline
+    return res.F  # captured + compared against the baseline
 ```
 
 Parametrized — every case gets its own baseline entry, keyed by the param id:
@@ -165,10 +165,10 @@ gate.**
 
 ```python
 # .pyclawd/config.py — exclude golden from the unit tiers
-markers={
-  "fast":    "not slow and not integration and not golden",
-  "default": "not slow and not golden",
-  "all":     "not golden",        # even `all` skips golden — it's a separate gate
+markers = {
+    "fast": "not slow and not integration and not golden",
+    "default": "not slow and not golden",
+    "all": "not golden",  # even `all` skips golden — it's a separate gate
 }
 ```
 

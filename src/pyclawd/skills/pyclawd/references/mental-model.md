@@ -151,8 +151,8 @@ from pyclawd import Project, DescriptionConfig
 project = Project(
     ...,
     descriptions=DescriptionConfig(
-        include=[r"\.pyx?$"],        # default: Python/Cython only
-        exclude=[r"vendor/"],        # skip vendored / generated Python
+        include=[r"\.pyx?$"],  # default: Python/Cython only
+        exclude=[r"vendor/"],  # skip vendored / generated Python
     ),
 )
 ```

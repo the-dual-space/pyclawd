@@ -98,9 +98,9 @@ from pyclawd import DoctorConfig, Project, QualityConfig, TestConfig
 
 project = Project(
     name="myproject",
-    conda_env=None,                       # or "myenv"; None = env-agnostic
+    conda_env=None,  # or "myenv"; None = env-agnostic
     root_markers=["pyproject.toml", "src/myproject/__init__.py"],
-    quality=QualityConfig(                # lint/format/typecheck/check argv
+    quality=QualityConfig(  # lint/format/typecheck/check argv
         lint_cmd=["ruff", "check"],
         lint_fix_cmd=["ruff", "check", "--fix"],
         format_cmd=["ruff", "format"],
@@ -108,21 +108,23 @@ project = Project(
         typecheck_cmd=["mypy", "src"],
         check_sequence=["format-check", "lint", "typecheck", "descriptions", "test"],
     ),
-    test=TestConfig(                      # tests dir + tier marker expressions
+    test=TestConfig(  # tests dir + tier marker expressions
         tests_dir="tests/",
         classname_prefix="tests.",
         integration_files=[],
-        markers={"fast": "not slow and not integration and not golden and not benchmark",
-                 "default": "not slow and not golden and not benchmark",
-                 "all": "not golden and not benchmark"},
+        markers={
+            "fast": "not slow and not integration and not golden and not benchmark",
+            "default": "not slow and not golden and not benchmark",
+            "all": "not golden and not benchmark",
+        },
     ),
-    doctor=DoctorConfig(                  # what `pyclawd doctor` probes
+    doctor=DoctorConfig(  # what `pyclawd doctor` probes
         core_deps=["typer", "rich"],
         dev_deps=["pytest"],
         tool_files=[],
         binaries=[("ruff", "pip install ruff"), ("mypy", "pip install mypy")],
     ),
-    docs=None,                            # set a DocsConfig to enable `pyclawd docs`
+    docs=None,  # set a DocsConfig to enable `pyclawd docs`
 )
 ```
 

@@ -95,7 +95,7 @@ Suppression: always specify the code.
 
 ```python
 x = thing()  # noqa: F401                          — not bare # noqa
-y = api()    # type: ignore[no-untyped-call]       — not bare # type: ignore
+y = api()  # type: ignore[no-untyped-call]       — not bare # type: ignore
 ```
 
 ## mypy (type checking)
@@ -104,8 +104,10 @@ New code uses `strict = true` from day one — strict mode costs nothing on a fr
 file. Use modern syntax:
 
 ```python
-def f(x: int | None) -> list[str]: ...   # YES — Python 3.10+
-from typing import Optional, List         # NO — legacy
+def f(x: int | None) -> list[str]: ...  # YES — Python 3.10+
+
+
+from typing import Optional, List  # NO — legacy
 ```
 
 Suppress per-module, never globally:
@@ -152,6 +154,7 @@ def foo(x: int, y: str) -> bool:
     Raises:
         ValueError: If y is empty.
     """
+
 
 # ✗ wrong — NumPy style, types duplicated
 def foo(x: int, y: str) -> bool:

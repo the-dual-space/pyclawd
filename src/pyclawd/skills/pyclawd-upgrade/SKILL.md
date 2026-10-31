@@ -42,7 +42,7 @@ and the nested `*Config`s). That is what you are migrating.
    - Read the installed model if unsure — `pyclawd python -c "import pyclawd, inspect; print(inspect.getsource(pyclawd.Project))"` (or read `src/pyclawd/project.py`).
    - **Re-stamp the version** to the installed pyclawd:
      ```python
-     pyclawd_version="<the version pyclawd version reports>",
+     pyclawd_version = ("<the version pyclawd version reports>",)
      ```
      Do this **last** — it is what clears the drift signal, so only stamp once the
      config actually matches the new model.

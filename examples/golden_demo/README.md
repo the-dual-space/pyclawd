@@ -45,13 +45,13 @@ what behavior changed and when. **Agents compare; humans bless.**
 @pytest.mark.golden
 def test_indicator() -> float:
     f = optimize("sphere", seed=7)
-    return math.sqrt(float(f @ f))          # a float → a readable number
+    return math.sqrt(float(f @ f))  # a float → a readable number
 
 
 @pytest.mark.golden
 @pytest.mark.parametrize("problem", ["sphere", "rosenbrock"], ids=["sphere", "rosenbrock"])
 def test_front(problem: str) -> np.ndarray:
-    return optimize(problem, seed=42)        # an np.array → a readable nested list
+    return optimize(problem, seed=42)  # an np.array → a readable nested list
 ```
 
 ## What a committed baseline looks like

@@ -177,7 +177,7 @@ for the full mechanics**; the adoption-critical points:
    @pytest.mark.parametrize("problem", ["sphere", "rosenbrock"], ids=["sphere", "rosenbrock"])
    def test_minimize(problem):
        res = minimize(get_problem(problem), seed=42)
-       return res.F          # return a dict to snapshot several values at once
+       return res.F  # return a dict to snapshot several values at once
    ```
    Always pass explicit `ids=` on parametrized goldens (index-based ids silently re-map
    baselines).
