@@ -85,6 +85,10 @@ def _args(bench_dir: str, *extra: str) -> tuple[str, ...]:
         "benchmark_warmup=0",
         "-o",
         "benchmark_repeat=2",
+        # Generous tolerance: the recorded-then-compared run must not flake on a loaded
+        # machine (the regression test tampers the baseline's own rtol to 0.0).
+        "-o",
+        "benchmark_rtol=1000",
         "-m",
         "benchmark",
         *extra,

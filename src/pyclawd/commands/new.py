@@ -702,7 +702,7 @@ def _adopt(
         "name": name_v,
         "pkg": pkg_v,
         "author": _git_config("user.name", "Your Name"),
-        "owner": _default_pkg(_git_config("user.name", "your-org")).lower() or "your-org",
+        "owner": _git_config("github.user", "your-org"),
     }
     if docs_v:
         _install_docs(cwd, ctx)
